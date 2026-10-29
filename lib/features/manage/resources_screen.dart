@@ -119,26 +119,69 @@ class ManagementScreen extends StatelessWidget {
     return AppPage(
       children: [
         LedgerHeading(
-          kicker: 'ĐIỀU PHỐI / ${user.roleLabel.toUpperCase()}',
-          title: 'Quản lý',
+          kicker: user.isAdmin ? 'TÀI KHOẢN · CHI NHÁNH' : 'QUẢN LÝ CHI NHÁNH',
+          title: user.isAdmin ? 'Quản trị' : 'Điều phối ca',
+        ),
+        Surface(
+          color: AppColors.palePink,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              FilledButton.icon(
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => ResourceScreen(
+                      resource: user.isAdmin ? 'employees' : 'shifts',
+                    ),
+                  ),
+                ),
+                icon: Icon(
+                  user.isAdmin
+                      ? Icons.people_outline
+                      : Icons.event_available_outlined,
+                ),
+                label: Text(user.isAdmin ? 'Nhân viên' : 'Phân ca'),
+              ),
+              const SizedBox(height: 10),
+              OutlinedButton.icon(
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => ResourceScreen(
+                      resource: user.isAdmin ? 'branches' : 'corrections',
+                    ),
+                  ),
+                ),
+                icon: Icon(
+                  user.isAdmin
+                      ? Icons.store_outlined
+                      : Icons.fact_check_outlined,
+                ),
+                label: Text(user.isAdmin ? 'Chi nhánh' : 'Duyệt đơn'),
+              ),
+            ],
+          ),
         ),
         _menuRow(
           context,
           '01',
-          'Bảng công tháng',
+          user.isAdmin ? 'Bảng công tháng' : 'Bảng công chi nhánh',
           () => const MonthlyReportScreen(),
         ),
-        for (final entry in [
-          'employees',
-          'branches',
-          'shifts',
-          'corrections',
-        ].indexed)
+        for (final entry
+            in (user.isAdmin
+                    ? [('shifts', 'Ca làm'), ('corrections', 'Điều chỉnh công')]
+                    : [
+                        ('employees', 'Nhân viên chi nhánh'),
+                        ('branches', 'Thông tin chi nhánh'),
+                      ])
+                .indexed)
           _menuRow(
             context,
             '${entry.$1 + 2}'.padLeft(2, '0'),
-            resourceLabel(entry.$2),
-            () => ResourceScreen(resource: entry.$2),
+            entry.$2.$2,
+            () => ResourceScreen(resource: entry.$2.$1),
           ),
       ],
     );
@@ -316,7 +359,7 @@ class _ResourceScreenState extends State<ResourceScreen> {
       appBar: AppBar(
         title: Text(resourceLabel(widget.resource)),
         actions: [
-          if (_canCreate(user))
+          if (_canCreate(user) && widget.resource != 'branches')
             IconButton(
               tooltip: 'Thêm mới',
               onPressed: () => _edit(),
@@ -324,6 +367,13 @@ class _ResourceScreenState extends State<ResourceScreen> {
             ),
         ],
       ),
+      floatingActionButton: widget.resource == 'branches' && user.isAdmin
+          ? FloatingActionButton.extended(
+              onPressed: () => _edit(),
+              icon: const Icon(Icons.add),
+              label: const Text('Thêm chi nhánh'),
+            )
+          : null,
       body: AppPage(
         onRefresh: _refresh,
         children: [
@@ -365,7 +415,11 @@ class _ResourceScreenState extends State<ResourceScreen> {
                       ? OutlinedButton.icon(
                           onPressed: () => _edit(),
                           icon: const Icon(Icons.add),
-                          label: const Text('Thêm mới'),
+                          label: Text(
+                            widget.resource == 'branches'
+                                ? 'Thêm chi nhánh'
+                                : 'Thêm mới',
+                          ),
                         )
                       : null,
                 );

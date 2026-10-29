@@ -22,9 +22,9 @@ MSSV **2380601398** · **Nhóm 8** · **Sáng thứ 6** · App chấm công nhâ
 
 ## Kết quả cuối
 
-- **87/87 Flutter tests**, analyzer toàn bộ **No issues found (8,1 giây)**, sau sửa micro/camera và nhãn ngôn ngữ.
+- **97/97 Flutter tests**, analyzer toàn bộ **No issues found (7,4 giây)**, sau sửa micro/camera và nhãn ngôn ngữ.
 - **96/96 backend tests**; **9/9** kiểm chứng bàn giao và **12/12** CRUD/lịch sử trên PostgreSQL thật, schema thử đã dọn.
-- APK release **217.908.988 byte**, chữ ký v2 hợp lệ, không debuggable; minSDK24, target36, ARM32/ARM64/x86_64. Đã cài thử và đăng nhập bằng OTP thật.
+- APK release **xem dung lượng/chữ ký/SHA trong KIEM_TRA_APK.json**, chữ ký v2 hợp lệ, không debuggable; minSDK24, target36, ARM32/ARM64/x86_64. Đã cài thử và đăng nhập bằng OTP thật.
 - Ba thông báo FCM nghiệp vụ foreground và điều hướng đã quan sát. Chưa kiểm màn hình khóa/background trên điện thoại thật.
 - Camera và micro hoạt động ngay lần cấp quyền đầu. Native ASR đã chứng minh nạp/thu/dừng; điều này không thay bằng chứng độ chính xác nhận lời nói.
 

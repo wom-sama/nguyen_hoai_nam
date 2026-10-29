@@ -1,8 +1,8 @@
 import 'dart:async';
-import 'dart:io';
 import 'dart:math';
 
 import 'package:camera/camera.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -14,6 +14,7 @@ import '../../ui/components.dart';
 import '../../ui/theme.dart';
 import '../handovers/handovers_screen.dart';
 import 'translation_service.dart';
+import 'camera_frame.dart';
 
 class LiveCameraScreen extends StatefulWidget {
   const LiveCameraScreen({
@@ -76,10 +77,10 @@ class _LiveCameraScreenState extends State<LiveCameraScreen>
   static const _interval = Duration(milliseconds: 1400);
   late final _service = widget.translationService ?? TranslationService();
   CameraController? _camera;
-  Future<void>? _initializing, _processing, _captureDone;
+  Future<void>? _initializing, _processing;
   Future<void> _cleanup = Future.value();
   Timer? _timer;
-  final Set<String> _temporaryPhotos = {};
+  bool _cleanupPending = false, _cleanupFailed = false;
   _CameraTranslation? _result;
   String? _error;
   String _status = 'Đang mở camera…', _lastRecognized = '';
@@ -106,6 +107,8 @@ class _LiveCameraScreenState extends State<LiveCameraScreen>
         _closing ||
         !_foreground ||
         !_running ||
+        _cleanupPending ||
+        _cleanupFailed ||
         _initializing != null ||
         _camera != null) {
       return;
@@ -134,9 +137,17 @@ class _LiveCameraScreenState extends State<LiveCameraScreen>
       _status = 'Đang mở camera…';
     });
     try {
-      await _cleanup;
+      await _cleanup.timeout(const Duration(seconds: 4));
       if (!mounted || _closing || !_foreground || !_running) return;
-      final cameras = await availableCameras();
+      if (defaultTargetPlatform != TargetPlatform.android) {
+        throw const ApiException(
+          'CAMERA_PLATFORM',
+          'Dịch trực tiếp qua camera hiện hỗ trợ thiết bị Android.',
+        );
+      }
+      final cameras = await availableCameras().timeout(
+        const Duration(seconds: 5),
+      );
       if (cameras.isEmpty) throw CameraException('NoCamera', '');
       final selected =
           cameras
@@ -147,16 +158,22 @@ class _LiveCameraScreenState extends State<LiveCameraScreen>
           cameras.first;
       next = CameraController(
         selected,
-        ResolutionPreset.high,
+        ResolutionPreset.medium,
         enableAudio: false,
-        imageFormatGroup: ImageFormatGroup.jpeg,
+        imageFormatGroup: ImageFormatGroup.nv21,
       );
-      await next.initialize();
-      await next.setFlashMode(FlashMode.off);
+      await next.initialize().timeout(const Duration(seconds: 8));
+      await next
+          .setFlashMode(FlashMode.off)
+          .timeout(const Duration(seconds: 3));
       if (!mounted || _closing || !_foreground || !_running) return;
-      _camera = next;
+      final camera = next;
+      _camera = camera;
+      next = null;
       setState(() => _status = 'Hướng camera vào chữ cần dịch');
-      unawaited(_sample());
+      await camera
+          .startImageStream((image) => _onFrame(image, camera))
+          .timeout(const Duration(seconds: 5));
     } on CameraException catch (error) {
       if (mounted && !_closing) {
         setState(() {
@@ -168,49 +185,61 @@ class _LiveCameraScreenState extends State<LiveCameraScreen>
               : 'Chưa mở được camera. Hãy kiểm tra camera trên thiết bị rồi thử lại.';
         });
       }
-    } catch (_) {
+    } catch (error) {
       if (mounted && !_closing) {
         setState(() {
           _running = false;
-          _error = 'Chưa mở được camera. Vui lòng thử lại.';
+          _error = error is ApiException
+              ? error.message
+              : 'Chưa mở được camera. Vui lòng thử lại.';
         });
       }
     } finally {
-      if (next != null && !identical(_camera, next)) await next.dispose();
+      if (!_running && _camera != null) await _releaseCamera();
+      if (next != null && !identical(_camera, next)) {
+        await _closeController(next);
+      }
     }
   }
 
-  Future<void> _sample() async {
-    if (!_canScan || _processing != null) return;
-    final task = _processFrame(_camera!, _generation);
+  void _onFrame(CameraImage image, CameraController camera) {
+    if (!_canScan ||
+        !identical(camera, _camera) ||
+        _processing != null ||
+        _timer?.isActive == true) {
+      return;
+    }
+    unawaited(_sample(image, camera));
+  }
+
+  Future<void> _sample(CameraImage image, CameraController camera) async {
+    final task = _processFrame(image, camera, _generation);
     _processing = task;
     try {
       await task;
     } finally {
       _processing = null;
-      if (_canScan) _timer = Timer(_interval, () => unawaited(_sample()));
+      if (_canScan) _timer = Timer(_interval, () => _timer = null);
     }
   }
 
   bool _current(int generation) => _canScan && generation == _generation;
 
-  Future<void> _processFrame(CameraController camera, int generation) async {
-    XFile? photo;
+  Future<void> _processFrame(
+    CameraImage image,
+    CameraController camera,
+    int generation,
+  ) async {
     try {
-      final capture = camera.takePicture();
-      // Camera disposal waits for capture, while OCR/translation may finish locally.
-      // Its failure is handled below; this future only signals camera availability.
-      _captureDone = capture.then<void>(
-        (_) {},
-        onError: (Object _, StackTrace _) {},
-      );
-      photo = await capture;
-      _captureDone = null;
-      _temporaryPhotos.add(photo.path);
       if (!_current(generation)) return;
+      final input = cameraFrameInput(
+        image,
+        camera.description,
+        camera.value.deviceOrientation,
+      );
       setState(() => _status = 'Đang đọc chữ…');
-      final original = (await _service.recognizePhoto(
-        photo.path,
+      final original = (await _service.recognizeFrame(
+        input,
         sourceLanguage: widget.sourceLanguage,
       )).trim();
       if (!_current(generation)) return;
@@ -259,25 +288,6 @@ class _LiveCameraScreenState extends State<LiveCameraScreen>
         });
         unawaited(_releaseCamera());
       }
-    } finally {
-      _captureDone = null;
-      if (photo != null) await _deletePhoto(photo.path);
-    }
-  }
-
-  Future<void> _deletePhoto(String path) async {
-    try {
-      final file = File(path);
-      if (await file.exists()) await file.delete();
-      _temporaryPhotos.remove(path);
-    } catch (_) {
-      if (mounted && !_closing) {
-        setState(() {
-          _error = 'Chưa xóa được ảnh tạm trên thiết bị. Hãy đóng và mở lại màn hình dịch.';
-          _running = false;
-        });
-        unawaited(_releaseCamera());
-      }
     }
   }
 
@@ -285,22 +295,52 @@ class _LiveCameraScreenState extends State<LiveCameraScreen>
     _generation++;
     _timer?.cancel();
     _timer = null;
-    final old = _camera, capture = _captureDone;
+    final old = _camera;
     _camera = null;
+    return old == null ? Future.value() : _closeController(old);
+  }
+
+  Future<void> _closeController(CameraController old) {
+    _cleanupPending = true;
     _cleanup = _cleanup.then((_) async {
-      await capture;
       try {
-        await old?.dispose();
+        try {
+          if (old.value.isStreamingImages) await old.stopImageStream();
+        } finally {
+          await old.dispose();
+        }
       } catch (_) {
+        _cleanupFailed = true;
         if (mounted && !_closing) {
           setState(() {
             _running = false;
-            _error = 'Chưa đóng được camera. Hãy mở lại màn hình dịch.';
+            _error = 'Chưa dừng được camera hoàn toàn. Hãy đóng màn hình này và thử lại sau.';
           });
+        }
+      } finally {
+        _cleanupPending = false;
+        if (mounted &&
+            !_closing &&
+            _foreground &&
+            _running &&
+            !_cleanupFailed &&
+            _camera == null &&
+            _error == null) {
+          unawaited(_openCamera());
         }
       }
     });
-    return _cleanup;
+    return _cleanup.timeout(
+      const Duration(seconds: 4),
+      onTimeout: () {
+        if (mounted && !_closing) {
+          setState(() {
+            _running = false;
+            _error = 'Camera đang phản hồi chậm. Hãy đợi một lát trước khi tiếp tục.';
+          });
+        }
+      },
+    );
   }
 
   Future<void> _pause() async {
@@ -315,6 +355,13 @@ class _LiveCameraScreenState extends State<LiveCameraScreen>
 
   void _resume() {
     if (_actionBusy) return;
+    if (_cleanupPending || _cleanupFailed) {
+      showMessage(
+        context,
+        'Camera chưa dừng hoàn toàn. Hãy đợi một lát rồi thử lại.',
+      );
+      return;
+    }
     setState(() {
       _running = true;
       _error = null;
@@ -338,7 +385,6 @@ class _LiveCameraScreenState extends State<LiveCameraScreen>
     _closing = true;
     _running = false;
     await _releaseCamera();
-    await _initializing;
     if (!mounted) return;
     setState(() => _canPop = true);
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -359,9 +405,6 @@ class _LiveCameraScreenState extends State<LiveCameraScreen>
     await _releaseCamera();
     await _initializing;
     await _processing;
-    for (final path in _temporaryPhotos.toList()) {
-      await _deletePhoto(path);
-    }
     await _service.dispose();
   }
 
@@ -529,7 +572,7 @@ class _LiveCameraScreenState extends State<LiveCameraScreen>
             ),
             const SizedBox(height: 12),
             const Text(
-              'Chữ trong ảnh được đọc và dịch trên thiết bị. Ảnh tạm được xóa sau khi xử lý. Chỉ khi bấm Lưu, nội dung chữ và bản dịch mới được lưu vào tài khoản.',
+              'Hình ảnh được đọc và dịch trên thiết bị, không tạo tệp ảnh. Chỉ khi bấm Lưu, nội dung chữ và bản dịch mới được lưu vào tài khoản.',
               style: TextStyle(
                 fontSize: 11,
                 color: AppColors.muted,

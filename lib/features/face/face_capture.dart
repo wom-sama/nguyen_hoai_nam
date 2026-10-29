@@ -1,12 +1,13 @@
 import 'dart:convert';
 import 'dart:async';
-import 'dart:io';
 
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 
 import '../../ui/components.dart';
 import '../../ui/theme.dart';
+import '../translation/camera_frame.dart';
+import 'face_frame.dart';
 
 class FaceCaptureScreen extends StatefulWidget {
   const FaceCaptureScreen({super.key, required this.enrolling});
@@ -18,6 +19,8 @@ class FaceCaptureScreen extends StatefulWidget {
 class _FaceCaptureScreenState extends State<FaceCaptureScreen>
     with WidgetsBindingObserver {
   CameraController? _camera;
+  CameraImage? _latestFrame;
+  int _epoch = 0;
   String? _error;
   bool _busy = false;
   bool _initializing = false, _foreground = true;
@@ -40,7 +43,9 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen>
       await _cleanup;
       final old = _camera;
       _camera = null;
-      await old?.dispose();
+      _latestFrame = null;
+      _epoch++;
+      if (old != null) await _closeCamera(old);
       if (!mounted || !_foreground) return;
       final cameras = await availableCameras();
       if (cameras.isEmpty) throw Exception('NO_CAMERA');
@@ -53,28 +58,34 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen>
         selected,
         ResolutionPreset.medium,
         enableAudio: false,
-        imageFormatGroup: ImageFormatGroup.jpeg,
+        imageFormatGroup: ImageFormatGroup.nv21,
       );
       await next.initialize();
       if (!mounted || !_foreground) return;
       _camera = next;
+      final active = next;
+      await active.startImageStream((frame) {
+        if (mounted && _foreground && identical(_camera, active)) {
+          final first = _latestFrame == null;
+          _latestFrame = frame;
+          if (first) setState(() {});
+        }
+      });
       setState(() => _error = null);
     } on CameraException catch (e) {
       if (mounted) {
         setState(
           () => _error = e.code.contains('AccessDenied')
               ? 'Cần quyền camera để chụp khuôn mặt. Bạn có thể quay lại đăng nhập bằng mật khẩu và OTP.'
-              : 'Chưa mở được camera. Kiểm tra cấu hình camera của giả lập rồi thử lại.',
+              : 'Chưa mở được camera. Hãy kiểm tra quyền camera rồi thử lại.',
         );
       }
     } catch (e) {
       if (mounted) {
-        setState(
-          () => _error = 'Chưa có camera khả dụng. Hãy cấu hình camera cho giả lập rồi thử lại.',
-        );
+        setState(() => _error = 'Chưa mở được camera. Vui lòng thử lại.');
       }
     } finally {
-      if (next != null && !identical(_camera, next)) await next.dispose();
+      if (next != null && !identical(_camera, next)) await _closeCamera(next);
       if (mounted) {
         setState(() => _initializing = false);
         if (_foreground && _camera == null && _error == null) {
@@ -84,14 +95,24 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen>
     }
   }
 
+  Future<void> _closeCamera(CameraController camera) async {
+    try {
+      if (camera.value.isStreamingImages) await camera.stopImageStream();
+    } finally {
+      await camera.dispose();
+    }
+  }
+
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.inactive ||
         state == AppLifecycleState.paused) {
       _foreground = false;
+      _epoch++;
+      _latestFrame = null;
       final old = _camera;
       _camera = null;
-      if (old != null) _cleanup = _cleanup.then((_) => old.dispose());
+      if (old != null) _cleanup = _cleanup.then((_) => _closeCamera(old));
     } else if (state == AppLifecycleState.resumed) {
       _foreground = true;
       _initialize();
@@ -103,30 +124,35 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen>
     WidgetsBinding.instance.removeObserver(this);
     final old = _camera;
     _camera = null;
-    if (old != null) unawaited(_cleanup.then((_) => old.dispose()));
+    _epoch++;
+    _latestFrame = null;
+    if (old != null) unawaited(_cleanup.then((_) => _closeCamera(old)));
     super.dispose();
   }
 
   Future<void> _capture() async {
     final camera = _camera;
-    if (camera == null || _busy) return;
+    final frame = _latestFrame;
+    if (camera == null || frame == null || _busy) return;
+    final epoch = _epoch;
     setState(() => _busy = true);
-    XFile? picture;
     try {
-      picture = await camera.takePicture();
-      final bytes = await picture.readAsBytes();
+      final input = cameraFrameInput(
+        frame,
+        camera.description,
+        camera.value.deviceOrientation,
+      );
+      final bytes = await faceFramePng(input);
       if (bytes.length > 2 * 1024 * 1024) throw Exception('IMAGE_TOO_LARGE');
-      if (mounted) Navigator.pop(context, base64Encode(bytes));
+      if (mounted && _foreground && epoch == _epoch) {
+        Navigator.pop(context, base64Encode(bytes));
+      }
     } catch (e) {
       if (mounted) {
         showMessage(context, 'Chưa chụp được ảnh hợp lệ. Vui lòng thử lại.');
-        setState(() => _busy = false);
       }
     } finally {
-      if (picture != null) {
-        final file = File(picture.path);
-        if (await file.exists()) await file.delete();
-      }
+      if (mounted) setState(() => _busy = false);
     }
   }
 
@@ -191,7 +217,10 @@ class _FaceCaptureScreenState extends State<FaceCaptureScreen>
         const SizedBox(height: 22),
         FilledButton.icon(
           onPressed:
-              _camera?.value.isInitialized == true && !_busy && !_initializing
+              _camera?.value.isInitialized == true &&
+                  _latestFrame != null &&
+                  !_busy &&
+                  !_initializing
               ? _capture
               : null,
           icon: const Icon(Icons.camera_alt_outlined),

@@ -13,6 +13,7 @@ import 'package:nguyen_hoai_nam/core/api_client.dart';
 import 'package:nguyen_hoai_nam/core/models.dart';
 import 'package:nguyen_hoai_nam/core/session.dart';
 import 'package:nguyen_hoai_nam/main.dart';
+import 'package:nguyen_hoai_nam/features/manage/resources_screen.dart';
 
 class _MemoryStore implements SessionStore {
   StoredSession? data;
@@ -235,6 +236,7 @@ void main() {
       await session.login('admin', 'long-password-test');
       await session.verifyOtp('123456');
       await pumpApp(tester, session, boundary);
+      expect(find.text('Quản trị'), findsOneWidget);
       expect(find.text('Nhân viên'), findsOneWidget);
       expect(find.text('Chi nhánh'), findsOneWidget);
       expect(find.text('Điều chỉnh công'), findsOneWidget);
@@ -243,6 +245,74 @@ void main() {
       await tester.pumpWidget(const SizedBox());
       session.dispose();
       session.api.close();
+    },
+  );
+  testWidgets(
+    'A manager lands on shift coordination and opens its two daily actions',
+    (tester) async {
+      final session = fixture(role: 'manager'), boundary = GlobalKey();
+      await session.login('quanly', 'long-password-test');
+      await session.verifyOtp('123456');
+      await pumpApp(tester, session, boundary);
+      expect(find.text('Điều phối ca'), findsOneWidget);
+      expect(find.text('Quản trị'), findsNothing);
+      expect(find.text('Nhân viên chi nhánh'), findsOneWidget);
+      expect(find.text('Thông tin chi nhánh'), findsOneWidget);
+      await tester.tap(find.text('Phân ca'));
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<ResourceScreen>(find.byType(ResourceScreen)).resource,
+        'shifts',
+      );
+      expect(find.byTooltip('Thêm mới'), findsOneWidget);
+      await tester.tap(find.byType(BackButton));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Duyệt đơn'));
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<ResourceScreen>(find.byType(ResourceScreen)).resource,
+        'corrections',
+      );
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+      session.dispose();
+      session.api.close();
+    },
+  );
+  testWidgets(
+    'Only an admin can open branch creation while managers can read branch information',
+    (tester) async {
+      for (final role in ['admin', 'manager']) {
+        final session = fixture(role: role, withShift: true),
+            boundary = GlobalKey();
+        await session.login('nhanvien', 'long-password-test');
+        await session.verifyOtp('123456');
+        await pumpApp(tester, session, boundary);
+        await tester.tap(
+          find.text(role == 'admin' ? 'Chi nhánh' : 'Thông tin chi nhánh'),
+        );
+        await tester.pumpAndSettle();
+        expect(find.text('Chi nhánh kiểm thử'), findsOneWidget);
+        if (role == 'admin') {
+          expect(
+            find.widgetWithText(FloatingActionButton, 'Thêm chi nhánh'),
+            findsOneWidget,
+          );
+          await tester.tap(find.text('Thêm chi nhánh'));
+          await tester.pumpAndSettle();
+          expect(find.text('Tên chi nhánh'), findsOneWidget);
+          expect(find.text('Bán kính chấm công (m)'), findsOneWidget);
+        } else {
+          expect(find.text('Thêm chi nhánh'), findsNothing);
+          expect(find.byType(FloatingActionButton), findsNothing);
+          expect(find.text('Chỉnh sửa'), findsNothing);
+          expect(find.byTooltip('Xóa'), findsNothing);
+        }
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox());
+        session.dispose();
+        session.api.close();
+      }
     },
   );
   testWidgets(

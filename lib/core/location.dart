@@ -30,7 +30,7 @@ Future<Position> currentPosition() async {
   } catch (e) {
     throw const ApiException(
       'LOCATION_UNAVAILABLE',
-      'Chưa lấy được vị trí đủ chính xác. Hãy kiểm tra GPS hoặc vị trí của giả lập.',
+      'Chưa lấy được vị trí đủ chính xác. Hãy bật vị trí và thử lại ở nơi thoáng hơn.',
     );
   }
 }

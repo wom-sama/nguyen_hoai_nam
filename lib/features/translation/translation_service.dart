@@ -99,6 +99,14 @@ class TranslationService {
   Future<String> recognizePhoto(
     String path, {
     required String sourceLanguage,
+  }) => recognizeFrame(
+    InputImage.fromFilePath(path),
+    sourceLanguage: sourceLanguage,
+  );
+
+  Future<String> recognizeFrame(
+    InputImage image, {
+    required String sourceLanguage,
   }) async {
     if (_disposed) {
       throw const ApiException('TRANSLATOR_CLOSED', 'Phiên dịch đã đóng.');
@@ -109,9 +117,7 @@ class TranslationService {
           : TextRecognitionScript.latin,
     );
     try {
-      final result = await recognizer.processImage(
-        InputImage.fromFilePath(path),
-      );
+      final result = await recognizer.processImage(image);
       if (result.text.trim().isEmpty) {
         throw const ApiException(
           'OCR_EMPTY',

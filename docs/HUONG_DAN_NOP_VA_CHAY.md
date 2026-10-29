@@ -24,7 +24,7 @@ flutter analyze
 
 Sau đó dùng **Build → Flutter → Build APK** trong Android Studio. Không chạy pub get/test/analyze đồng thời với release build vì có race tệp plugin tự sinh của SDK hiện tại; không sửa tay GeneratedPluginRegistrant.java. APK thường ở build/app/outputs/flutter-apk/app-release.apk. Cài và mở thử trước khi gửi.
 
-Bản bàn giao cuối: **87/87 Flutter**, analyzer sạch **8,1s**; backend **96/96**, PostgreSQL **9+12** kiểm tra. APK release đã cài và đăng nhập bằng OTP thật; camera/micro đạt lần cấp quyền đầu. Xem [kết quả và giới hạn](KET_QUA_CUOI.md), [đối chiếu đề](DOI_CHIEU_DE_BAI.md).
+Bản bàn giao cuối: **97/97 Flutter**, analyzer sạch **7,4s**; backend **96/96**, PostgreSQL **9+12** kiểm tra. APK release đã cài và đăng nhập bằng OTP thật; camera/micro đạt lần cấp quyền đầu. Xem [kết quả và giới hạn](KET_QUA_CUOI.md), [đối chiếu đề](DOI_CHIEU_DE_BAI.md).
 
 ## Gửi đúng gói
 

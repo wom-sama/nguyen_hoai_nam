@@ -2,7 +2,7 @@
 // ignore_for_file: depend_on_referenced_packages
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:camera_platform_interface/camera_platform_interface.dart';
 import 'package:flutter/material.dart';
@@ -10,6 +10,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:provider/provider.dart';
+import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
 import 'package:nguyen_hoai_nam/core/api_client.dart';
 import 'package:nguyen_hoai_nam/core/session.dart';
 import 'package:nguyen_hoai_nam/features/translation/live_camera_screen.dart';
@@ -19,8 +20,38 @@ import 'package:nguyen_hoai_nam/ui/theme.dart';
 class _Camera extends CameraPlatform {
   final errors = StreamController<CameraErrorEvent>.broadcast();
   final calls = <String>[];
-  int count = 0, captures = 0;
-  String? photoPath;
+  final frames = <int, StreamController<CameraImageData>>{};
+  int count = 0, stillCaptures = 0;
+  @override
+  bool supportsImageStreaming() => true;
+  @override
+  Stream<CameraImageData> onStreamedFrameAvailable(
+    int id, {
+    CameraImageStreamOptions? options,
+  }) {
+    calls.add('stream$id');
+    return frames
+        .putIfAbsent(id, () => StreamController<CameraImageData>.broadcast())
+        .stream;
+  }
+
+  void frame() {
+    frames[count]?.add(
+      CameraImageData(
+        format: const CameraImageFormat(ImageFormatGroup.nv21, raw: 17),
+        planes: [
+          CameraImagePlane(
+            bytes: Uint8List.fromList([1, 2, 3, 4, 5, 6]),
+            bytesPerRow: 2,
+            bytesPerPixel: 1,
+          ),
+        ],
+        height: 2,
+        width: 2,
+      ),
+    );
+  }
+
   @override
   Future<List<CameraDescription>> availableCameras() async => [
     const CameraDescription(
@@ -67,8 +98,8 @@ class _Camera extends CameraPlatform {
       ColoredBox(key: ValueKey('preview$id'), color: Colors.black);
   @override
   Future<XFile> takePicture(int id) async {
-    captures++;
-    return XFile(photoPath ?? 'nonexistent-camera-fixture-$captures.jpg');
+    stillCaptures++;
+    throw StateError('Live translation must not request still capture');
   }
 
   @override
@@ -81,8 +112,8 @@ class _Translator extends TranslationService {
   int recognized = 0, translated = 0;
   Completer<void>? gate;
   @override
-  Future<String> recognizePhoto(
-    String path, {
+  Future<String> recognizeFrame(
+    InputImage image, {
     required String sourceLanguage,
   }) async {
     recognized++;
@@ -103,7 +134,7 @@ class _Translator extends TranslationService {
 
 Future<void> flushFiles(WidgetTester tester) async {
   await tester.runAsync(
-    () => Future<void>.delayed(const Duration(milliseconds: 30)),
+    () => Future<void>.delayed(const Duration(milliseconds: 10)),
   );
   await tester.pump();
 }
@@ -182,6 +213,9 @@ void main() {
     );
     await tester.pump();
     await tester.pump();
+    camera.frame();
+    await tester.pump();
+    await tester.pump();
   }
 
   testWidgets(
@@ -190,12 +224,15 @@ void main() {
       translator.gate = Completer<void>();
       await open(tester);
       await tester.pump(const Duration(seconds: 5));
+      camera.frame();
+      await tester.pump();
       expect(translator.recognized, 1);
       expect(translator.translated, 1);
       translator.gate!.complete();
       await tester.pump();
       await flushFiles(tester);
       await tester.pump(const Duration(milliseconds: 1500));
+      camera.frame();
       await flushFiles(tester);
       expect(translator.recognized, 2);
       expect(translator.translated, 1);
@@ -213,9 +250,11 @@ void main() {
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
     await tester.pump();
     await flushFiles(tester);
-    final before = camera.captures;
+    final before = translator.recognized;
+    camera.frame();
     await tester.pump(const Duration(seconds: 5));
-    expect(camera.captures, before);
+    expect(translator.recognized, before);
+    expect(camera.stillCaptures, 0);
     expect(camera.calls, contains('dispose1'));
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     await tester.pump();
@@ -236,8 +275,10 @@ void main() {
       final save = find.byKey(const ValueKey('save-camera-translation'));
       await tester.ensureVisible(save);
       await tester.tap(save);
+      await flushFiles(tester);
       await tester.pumpAndSettle();
       await tester.tap(save);
+      await flushFiles(tester);
       await tester.pumpAndSettle();
       expect(posts, hasLength(2));
       expect(posts[0], posts[1]);
@@ -267,26 +308,24 @@ void main() {
     },
   );
 
-  testWidgets('completed OCR removes the temporary camera image', (
-    tester,
-  ) async {
-    final directory = (await tester.runAsync(
-      () => Directory.systemTemp.createTemp('live-camera-test-'),
-    ))!;
-    camera.photoPath = '${directory.path}/frame.jpg';
-    await tester.runAsync(
-      () => File(camera.photoPath!).writeAsBytes([1, 2, 3]),
-    );
-    await open(tester);
-    await flushFiles(tester);
-    expect(
-      await tester.runAsync(() => File(camera.photoPath!).exists()),
-      isFalse,
-    );
-    await tester.pumpWidget(const SizedBox());
-    await flushFiles(tester);
-    await tester.runAsync(() => directory.delete());
-  });
+  testWidgets(
+    'pausing releases camera without waiting for pending translation',
+    (tester) async {
+      translator.gate = Completer<void>();
+      await open(tester);
+      await tester.tap(find.byKey(const ValueKey('toggle-live-camera')));
+      await flushFiles(tester);
+      await tester.pumpAndSettle();
+      expect(camera.calls, contains('dispose1'));
+      expect(find.text('Tiếp tục dịch'), findsOneWidget);
+      expect(camera.stillCaptures, 0);
+      translator.gate!.complete();
+      await tester.pump();
+      expect(find.text('Hello'), findsNothing);
+      await tester.pumpWidget(const SizedBox());
+      await flushFiles(tester);
+    },
+  );
 
   testWidgets(
     'saved history result is opened without saving or uploading a frame',
@@ -302,6 +341,7 @@ void main() {
       await open(tester);
       await flushFiles(tester);
       await tester.tap(find.byTooltip('Bản dịch đã lưu'));
+      await flushFiles(tester);
       await tester.pumpAndSettle();
       await tester.tap(find.text('Turn off the machine'));
       await tester.pumpAndSettle();

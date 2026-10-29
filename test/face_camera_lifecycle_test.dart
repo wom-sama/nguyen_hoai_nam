@@ -1,6 +1,7 @@
 // CameraPlatform is the camera plugin's existing platform testing API.
 // ignore_for_file: depend_on_referenced_packages
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:camera_platform_interface/camera_platform_interface.dart';
 import 'package:flutter/material.dart';
@@ -13,6 +14,8 @@ class _Camera extends CameraPlatform {
   Completer<void>? gate;
   bool fail = false;
   int count = 0;
+  @override
+  bool supportsImageStreaming() => true;
   @override
   Future<List<CameraDescription>> availableCameras() async => [
     const CameraDescription(
@@ -57,6 +60,24 @@ class _Camera extends CameraPlatform {
   @override
   Stream<DeviceOrientationChangedEvent> onDeviceOrientationChanged() =>
       const Stream.empty();
+  @override
+  Stream<CameraImageData> onStreamedFrameAvailable(
+    int id, {
+    CameraImageStreamOptions? options,
+  }) => Stream.value(
+    CameraImageData(
+      format: const CameraImageFormat(ImageFormatGroup.nv21, raw: 17),
+      planes: [
+        CameraImagePlane(
+          bytes: Uint8List.fromList([16, 235, 16, 235, 128, 128]),
+          bytesPerRow: 2,
+          bytesPerPixel: 1,
+        ),
+      ],
+      height: 2,
+      width: 2,
+    ),
+  );
   @override
   Widget buildPreview(int id) =>
       ColoredBox(key: ValueKey('preview$id'), color: Colors.black);
@@ -109,6 +130,9 @@ void main() {
     await tester.pumpAndSettle();
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 10)),
+    );
     await tester.pumpAndSettle();
     expect(camera.calls, ['create1', 'init1', 'dispose1', 'create2', 'init2']);
     expect(find.byKey(const ValueKey('preview2')), findsOneWidget);

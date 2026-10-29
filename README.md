@@ -21,14 +21,14 @@ Android applicationId giữ com.example.nguyen_hoai_nam_2380601398 để khớp 
 - Đăng ký email, xác minh và admin duyệt; đăng nhập mật khẩu + OTP, refresh phiên, đăng xuất.
 - Admin/quản lý/nhân viên với trang và quyền server tương ứng; giới hạn chi nhánh.
 - CRUD nhân viên, chi nhánh, ca và đơn điều chỉnh; phân ca linh hoạt/qua đêm, chấm vào/ra theo giờ server và vị trí, chặn trùng, giữ giờ gốc và lịch sử, bảng công tháng chưa tính lương.
-- Dịch camera trực tiếp: tự đọc/dịch từng khung có giới hạn tần suất; chỉ gửi văn bản khi bấm Lưu. Lịch sử riêng có thể mở lại để sao chép/bàn giao. Backend camera đã deploy1eadc04;5tests mới,12checks PostgreSQL và10checks API thật đạt. Kiểm thử camera native trên APK mới đang thực hiện; không coi widget tests là toàn luồng camera native.
+- Dịch camera trực tiếp: đọc ImageStream NV21 trong bộ nhớ, từng khung có giới hạn tần suất; chỉ gửi văn bản khi bấm Lưu. Lịch sử riêng có thể mở lại để sao chép/bàn giao. Backend camera đã deploy1eadc04;5tests mới,12checks PostgreSQL và10checks API thật đạt. Kiểm thử camera native trên APK mới đang thực hiện; không coi widget tests là toàn luồng camera native.
 - a: đối chiếu khuôn mặt trên server rồi OTP; b: chia sẻ vị trí có hạn; f: OCR/dịch ảnh và nhận giọng liên tục Việt–Anh–Trung.
 - Bàn giao kiểm chứng1–3 dữ kiện trong cả bản gốc/dịch, nhập lại đúng phiên bản, server tạo xác nhận; sửa phiếu hủy xác nhận cũ và giữ audit.
 - FCM phân ca/duyệt đơn/bàn giao; kem–hồng, dấuHN, guide lần đầu, watermark chuyển động có dừng theo vòng đời/reduced motion.
 
 ## Kiểm thử
 
-**87/87 Flutter tests**, wholeanalyzer **No issues found8,1s**. Backend **96/96**; PostgreSQL thật **9/9** kiểm chứng bàn giao và **12/12** CRUD/lịch sử. API production và các schema thử được phân biệt trong báo cáo.
+**97/97 Flutter tests**, wholeanalyzer **No issues found7,4s**. Backend **96/96**; PostgreSQL thật **9/9** kiểm chứng bàn giao và **12/12** CRUD/lịch sử. API production và các schema thử được phân biệt trong báo cáo.
 
 Native: đăng nhập OTP thật/trang nhân viên; chấm vào/ra bằng GPS MOCK; chia sẻ vị trí dừng cập nhật khi rời;3FCM nghiệp vụ foreground+điều hướng; OCR Latin/Trung và6chiều dịch. APK cuối đã kiểm camera preview ngay lần cấp quyền đầu, micro cũng thu âm ngay sau cấp quyền đầu, nạp familyViệt vàAnh/Trung rồi dừng sạch. Nhãn Việt/Anh/Trung hiển thị trọn trên màn hình nhỏ.
 
