@@ -1,0 +1,258 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:intl/date_symbol_data_local.dart';
+import 'package:provider/provider.dart';
+
+import 'core/api_client.dart';
+import 'core/session.dart';
+import 'ui/theme.dart';
+import 'ui/ledger.dart';
+import 'ui/first_run_guide.dart';
+import 'features/auth/auth_screen.dart';
+import 'features/home/home_screen.dart';
+import 'features/handovers/handovers_screen.dart';
+import 'features/translation/translation_screen.dart';
+import 'features/manage/resources_screen.dart';
+import 'features/account/account_screen.dart';
+import 'features/notifications/messaging_gateway.dart';
+import 'features/notifications/notification_controller.dart';
+import 'features/notifications/notification_host.dart';
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await initializeDateFormatting('vi');
+  LicenseRegistry.addLicense(() async* {
+    yield LicenseEntryWithLineBreaks([
+      'Be Vietnam Pro',
+    ], await rootBundle.loadString('assets/fonts/OFL.txt'));
+  });
+  LicenseRegistry.addLicense(() async* {
+    yield LicenseEntryWithLineBreaks([
+      'Lora',
+    ], await rootBundle.loadString('assets/fonts/Lora-OFL.txt'));
+  });
+  final api = ApiClient(
+    baseUrl: const String.fromEnvironment(
+      'API_BASE_URL',
+      defaultValue: 'https://nguyen-hoai-nam-2380601398-api.onrender.com',
+    ),
+  );
+  final session = SessionController(api: api);
+  final firstRun = FirstRunController();
+  await firstRun.load();
+  final notifications = NotificationController(
+    session: session,
+    gateway: FirebaseMessagingGateway(),
+  );
+  runApp(
+    AttendanceApp(
+      session: session,
+      notifications: notifications,
+      firstRun: firstRun,
+    ),
+  );
+  unawaited(session.restore());
+  unawaited(notifications.initialize());
+}
+
+class AttendanceApp extends StatelessWidget {
+  const AttendanceApp({
+    super.key,
+    required this.session,
+    this.notifications,
+    this.firstRun,
+  });
+  final SessionController session;
+  final NotificationController? notifications;
+  final FirstRunController? firstRun;
+  @override
+  Widget build(BuildContext context) => MultiProvider(
+    providers: [
+      ChangeNotifierProvider.value(value: session),
+      ListenableProvider<NotificationController?>.value(value: notifications),
+    ],
+    child: MaterialApp(
+      title: 'Nguyễn Hoài Nam',
+      debugShowCheckedModeBanner: false,
+      theme: appTheme(),
+      locale: const Locale('vi'),
+      supportedLocales: const [Locale('vi'), Locale('en'), Locale('zh')],
+      localizationsDelegates: GlobalMaterialLocalizations.delegates,
+      home: NotificationHost(
+        controller: notifications,
+        child: firstRun == null
+            ? const _AuthGate()
+            : FirstRunGate(controller: firstRun!, child: const _AuthGate()),
+      ),
+    ),
+  );
+}
+
+class _AuthGate extends StatelessWidget {
+  const _AuthGate();
+  @override
+  Widget build(BuildContext context) {
+    final session = context.watch<SessionController>();
+    if (session.restoring) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+    if (!session.api.isConfigured) return const ServiceUnavailableScreen();
+    if (session.user != null) {
+      if (!session.user!.isActive) return const PendingAccountScreen();
+      return _AppShell(key: ValueKey(session.user!.id + session.user!.role));
+    }
+    if (session.challenge != null) return const OtpScreen();
+    return const AuthScreen();
+  }
+}
+
+class _AppShell extends StatefulWidget {
+  const _AppShell({super.key});
+  @override
+  State<_AppShell> createState() => _AppShellState();
+}
+
+class _AppShellState extends State<_AppShell> {
+  int _index = 0;
+  final _visited = <int>{};
+  final _translationKey = GlobalKey<TranslationScreenState>();
+  int _homeRevision = 0, _handoverRevision = 0;
+  int? _scheduledNotification;
+
+  @override
+  void initState() {
+    super.initState();
+    _index = context.read<SessionController>().user!.canManage ? 3 : 0;
+    _visited.add(_index);
+  }
+
+  Future<void> _openNotification(
+    NotificationController controller,
+    NotificationNavigation navigation,
+  ) async {
+    _scheduledNotification = null;
+    if (!mounted ||
+        ModalRoute.of(context)?.isCurrent != true ||
+        context.read<SessionController>().user?.id !=
+            navigation.hint.recipientId) {
+      return;
+    }
+    controller.consumeNavigation(navigation);
+    if (_index == 2) {
+      await (_translationKey.currentState?.pause() ?? Future.value());
+    }
+    if (!mounted ||
+        ModalRoute.of(context)?.isCurrent != true ||
+        context.read<SessionController>().user?.id !=
+            navigation.hint.recipientId) {
+      return;
+    }
+    if (navigation.hint.destination == NotificationDestination.corrections) {
+      await Navigator.push(
+        context,
+        MaterialPageRoute<void>(
+          builder: (_) => const ResourceScreen(resource: 'corrections'),
+        ),
+      );
+      return;
+    }
+    setState(() {
+      _index = navigation.hint.destination == NotificationDestination.home
+          ? 0
+          : 1;
+      _visited.add(_index);
+      if (_index == 0) {
+        _homeRevision++;
+      } else {
+        _handoverRevision++;
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final managing = context.watch<SessionController>().user!.canManage;
+    final notifications = context.watch<NotificationController?>();
+    final navigation = notifications?.navigation;
+    if (navigation != null && _scheduledNotification != navigation.revision) {
+      _scheduledNotification = navigation.revision;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        unawaited(_openNotification(notifications!, navigation));
+      });
+    }
+    final pages = <Widget>[
+      HomeScreen(key: ValueKey('home-$_homeRevision')),
+      HandoversScreen(key: ValueKey('handovers-$_handoverRevision')),
+      TranslationScreen(key: _translationKey),
+      if (managing) const ManagementScreen(),
+      const AccountScreen(),
+    ];
+    final destinations = <NavigationDestination>[
+      const NavigationDestination(
+        icon: Icon(Icons.schedule_outlined),
+        selectedIcon: Icon(Icons.schedule),
+        label: 'Ca làm',
+      ),
+      const NavigationDestination(
+        icon: Icon(Icons.checklist_outlined),
+        selectedIcon: Icon(Icons.checklist),
+        label: 'Bàn giao',
+      ),
+      const NavigationDestination(
+        icon: Icon(Icons.translate_outlined),
+        selectedIcon: Icon(Icons.translate),
+        label: 'Dịch',
+      ),
+      if (managing)
+        const NavigationDestination(
+          icon: Icon(Icons.grid_view_outlined),
+          selectedIcon: Icon(Icons.grid_view_rounded),
+          label: 'Quản lý',
+        ),
+      const NavigationDestination(
+        icon: Icon(Icons.person_outline),
+        selectedIcon: Icon(Icons.person),
+        label: 'Tài khoản',
+      ),
+    ];
+    return Scaffold(
+      body: IndexedStack(
+        index: _index,
+        children: [
+          for (var i = 0; i < pages.length; i++)
+            _visited.contains(i)
+                ? TabEntrance(
+                    key: ValueKey(i),
+                    active: i == _index,
+                    child: pages[i],
+                  )
+                : const SizedBox.shrink(),
+        ],
+      ),
+      bottomNavigationBar: DecoratedBox(
+        decoration: const BoxDecoration(
+          border: Border(top: BorderSide(color: AppColors.line)),
+        ),
+        child: NavigationBar(
+          selectedIndex: _index,
+          destinations: destinations,
+          onDestinationSelected: (index) {
+            if (_index == 2 && index != 2) {
+              unawaited(
+                _translationKey.currentState?.pause() ?? Future.value(),
+              );
+            }
+            setState(() {
+              _visited.add(index);
+              _index = index;
+            });
+          },
+        ),
+      ),
+    );
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "725314085264",
+    "project_id": "nguyen-hoai-nam-2380601398",
+    "storage_bucket": "nguyen-hoai-nam-2380601398.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:725314085264:android:91478c82dc9817072b5315",
+        "android_client_info": {
+          "package_name": "com.example.nguyen_hoai_nam_2380601398"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCZQ916-0OTwf3ZX-U-RCrflqCEIFuXE2o"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

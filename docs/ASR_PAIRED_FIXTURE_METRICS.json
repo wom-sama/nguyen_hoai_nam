@@ -1,0 +1,45 @@
+{
+  "tiny_android": {
+    "zh": {
+      "metric": "character_error_rate",
+      "referenceUnits": 35,
+      "rate": 0.7714285714285715,
+      "errors": 27
+    },
+    "vi": {
+      "metric": "word_error_rate",
+      "referenceUnits": 34,
+      "rate": 0.6470588235294118,
+      "errors": 22
+    }
+  },
+  "base_fp32_windows": {
+    "zh": {
+      "metric": "character_error_rate",
+      "referenceUnits": 35,
+      "rate": 0.2,
+      "errors": 7
+    },
+    "vi": {
+      "metric": "word_error_rate",
+      "referenceUnits": 34,
+      "rate": 0.4117647058823529,
+      "errors": 14
+    }
+  },
+  "routed_windows": {
+    "zh": {
+      "metric": "character_error_rate",
+      "referenceUnits": 35,
+      "rate": 0.14285714285714285,
+      "errors": 5
+    },
+    "vi": {
+      "metric": "word_error_rate",
+      "referenceUnits": 34,
+      "rate": 0.029411764705882353,
+      "errors": 1
+    }
+  },
+  "normalization": "NFC, lowercase, punctuation removed; VI whitespace word tokens; Chinese characters with Windows SimplifiedChinese script normalization (legitimate orthography only). Same clips; post-hoc diagnostic metrics, not original pass gate. Tiny platform Android; BaseFP32 and routed platform Windows."
+}

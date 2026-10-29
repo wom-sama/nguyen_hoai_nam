@@ -1,0 +1,15 @@
+{
+  "platform": "Windows only; NOT Android proof",
+  "model": "paraformer-en-zh-small-int8",
+  "text": "one zero zero zero one i know two one o zero one eighth zero three",
+  "numeric": "10001210103",
+  "modelLoadMs": 21043,
+  "decodeMs": 759,
+  "sampleRate": 16000,
+  "samples": 132928,
+  "requiredDigitSequences": [
+    "10001",
+    "01803"
+  ],
+  "passed": false
+}

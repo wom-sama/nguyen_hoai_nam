@@ -1,0 +1,56 @@
+{
+  "platform": "\"Windows 11 Home Single Language\" 10.0 (Build 26200)",
+  "scope": "Windows native FFI diagnostic; NOT Android proof",
+  "sherpaNativeVersion": "2.0.1",
+  "onnxruntimeVersion": "1.28.2",
+  "model": "small",
+  "vi": {
+    "fixture": "dev/10056093347220194289.wav",
+    "samples": 239040,
+    "sampleRate": 16000,
+    "peak": 0.16962206363677979,
+    "rms": 0.0295126662238795,
+    "mean": 0.000015239669645885866,
+    "minimum": -0.16962206363677979,
+    "maximum": 0.16537773609161377,
+    "nonfinite": 0,
+    "nativeWaveMatchesHost": true,
+    "modelLoadMs": 2330,
+    "text": "Một số loài đậm vật như voi và hỗ cầu cổ, thường hay lại gặn xe và chỉ phải các nhộn cổ bình thường. Chúng ta cũng sẽ quan sát một cách dễ dàng.",
+    "decodeMs": 5692,
+    "requiredKeywords": [
+      "động vật",
+      "hươu cao cổ"
+    ],
+    "missingKeywords": [
+      "động vật",
+      "hươu cao cổ"
+    ],
+    "passed": false
+  },
+  "zh": {
+    "fixture": "dev/10149760684641961155.wav",
+    "samples": 119040,
+    "sampleRate": 16000,
+    "peak": 0.3634607791900635,
+    "rms": 0.03476302286781156,
+    "mean": -0.000018635078743901303,
+    "minimum": -0.3634607791900635,
+    "maximum": 0.32426923513412476,
+    "nonfinite": 0,
+    "nativeWaveMatchesHost": true,
+    "modelLoadMs": 1534,
+    "text": "因为远离大陆,铺乳动物无法长度发射而来使得巨龟成为客栋群造主要的食",
+    "decodeMs": 3604,
+    "requiredKeywords": [
+      "哺乳动物",
+      "科隆群岛"
+    ],
+    "missingKeywords": [
+      "哺乳动物",
+      "科隆群岛"
+    ],
+    "passed": false
+  },
+  "allPassed": false
+}

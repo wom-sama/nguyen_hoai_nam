@@ -1,0 +1,54 @@
+{
+  "platform": "\"Windows 11 Home Single Language\" 10.0 (Build 26200)",
+  "scope": "Windows native FFI diagnostic; NOT Android proof",
+  "sherpaNativeVersion": "2.0.1",
+  "onnxruntimeVersion": "1.28.2",
+  "model": "routed-int8",
+  "vi": {
+    "fixture": "dev/10056093347220194289.wav",
+    "samples": 239040,
+    "sampleRate": 16000,
+    "peak": 0.16962206363677979,
+    "rms": 0.0295126662238795,
+    "mean": 0.000015239669645885866,
+    "minimum": -0.16962206363677979,
+    "maximum": 0.16537773609161377,
+    "nonfinite": 0,
+    "nativeWaveMatchesHost": true,
+    "modelLoadMs": 7639,
+    "text": "MỘT SỐ LOÀI ĐỘNG VẬT NHƯ VOI VÀ HƯ CAO CỔ THƯỜNG HAY LẠI GẦN XE VÀ CHỈ VỚI CÁC DỤNG CỤ BÌNH THƯỜNG CHÚNG TA CŨNG SẼ QUAN SÁT MỘT CÁCH DỄ DÀNG",
+    "decodeMs": 874,
+    "requiredKeywords": [
+      "động vật",
+      "hươu cao cổ"
+    ],
+    "missingKeywords": [
+      "hươu cao cổ"
+    ],
+    "passed": false
+  },
+  "zh": {
+    "fixture": "dev/10149760684641961155.wav",
+    "samples": 119040,
+    "sampleRate": 16000,
+    "peak": 0.3634607791900635,
+    "rms": 0.03476302286781156,
+    "mean": -0.000018635078743901303,
+    "minimum": -0.3634607791900635,
+    "maximum": 0.32426923513412476,
+    "nonfinite": 0,
+    "nativeWaveMatchesHost": true,
+    "modelLoadMs": 1483,
+    "text": "因为远离大陆哺乳动物无法长途发射而来使得聚贵成为克隆群岛主要的食草动物",
+    "decodeMs": 328,
+    "requiredKeywords": [
+      "哺乳动物",
+      "科隆群岛"
+    ],
+    "missingKeywords": [
+      "科隆群岛"
+    ],
+    "passed": false
+  },
+  "allPassed": false
+}

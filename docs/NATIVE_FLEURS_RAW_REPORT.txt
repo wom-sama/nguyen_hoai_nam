@@ -1,0 +1,30 @@
+10-29 18:11:48.971 I/flutter ( 4272): 00:00 +1: real Whisper vi decodes pinned FLEURS human speech
+10-29 18:11:56.959 I/flutter ( 4272): ══╡ EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK ╞════════════════════════════════════════════════════
+10-29 18:11:56.960 I/flutter ( 4272): The following TestFailure was thrown running a test:
+10-29 18:11:56.960 I/flutter ( 4272): Expected: contains 'độngvật'
+10-29 18:11:56.960 I/flutter ( 4272):   Actual:
+10-29 18:11:56.960 I/flutter ( 4272): Missing official-reference keyword "động vật". Actual raw transcript: "Mọc sâu, lại đam vọc như vô
+10-29 18:11:56.961 I/flutter ( 4272): This was caught by the test expectation on the following line:
+10-29 18:11:56.962 I/flutter ( 4272): The test description was:
+10-29 18:11:56.962 I/flutter ( 4272):   real Whisper vi decodes pinned FLEURS human speech
+10-29 18:11:56.966 I/flutter ( 4272): 00:08 +1: real Whisper vi decodes pinned FLEURS human speech [E]
+10-29 18:11:56.967 I/flutter ( 4272):   The test description was: real Whisper vi decodes pinned FLEURS human speech
+10-29 18:11:56.977 I/flutter ( 4272): 00:08 +1 -1: real Whisper zh decodes pinned FLEURS human speech
+10-29 18:11:58.794 I/flutter ( 4272): ══╡ EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK ╞════════════════════════════════════════════════════
+10-29 18:11:58.794 I/flutter ( 4272): The following TestFailure was thrown running a test:
+10-29 18:11:58.794 I/flutter ( 4272): Expected: contains '哺乳动物'
+10-29 18:11:58.794 I/flutter ( 4272):   Actual: '因为原理大陆普通通我反正是20%的聚规程会可能去连主要的食堂的我'
+10-29 18:11:58.794 I/flutter ( 4272): Missing official-reference keyword "哺乳动物". Actual raw transcript:
+10-29 18:11:58.794 I/flutter ( 4272): This was caught by the test expectation on the following line:
+10-29 18:11:58.794 I/flutter ( 4272): The test description was:
+10-29 18:11:58.795 I/flutter ( 4272):   real Whisper zh decodes pinned FLEURS human speech
+10-29 18:11:58.795 I/flutter ( 4272): 00:09 +1 -1: real Whisper zh decodes pinned FLEURS human speech [E]
+10-29 18:11:58.795 I/flutter ( 4272):   The test description was: real Whisper zh decodes pinned FLEURS human speech
+10-29 18:11:58.795 I/flutter ( 4272): 00:09 +1 -2: (tearDownAll)
+10-29 18:11:58.797 I/flutter ( 4272): NATIVE_FLEURS_LANGUAGE_REPORT: {platform: sdk_gphone_x86_64-userdebug 11 RSR1.240422.006 12134477 dev-keys, processors: 2, scope: Real on-device VI/ZH Whisper FFI using pinned human FLEURS speech; not microphone/VAD/translation end-to-end or general accuracy benchmark., vi: {dataset: google/fleurs, config: vi_vn, fixture: vi_vn-10056093347220194289.wav, reference: Một số loài động vật như voi và hươu cao cổ thường hay lại gần xe và chỉ với các dụng cụ bình thường chúng ta cũng sẽ quan sát một cách dễ dàng., requiredKeywords: [động vật, hươu cao cổ], fixtureSha256: c32afc1cf9eb6b33753fc979edcb64426dcf677a85958ece9671ea8f78dabfe3, license: CC-BY-4.0, text: Mọc sâu, lại đam vọc như vô vô hô khó khó thường, đây là dàng xe và chỉ với két nụm cổ bình thường. Chúng ta cũng xe. Quên xe, mọc két đi dàng., modelLoadMs: 963, decodeMs: 2286, samples: 239040, sampleRate: 16000, audioSeconds: 14.94, language: vi, model: whi
+10-29 18:11:58.798 I/flutter ( 4272):   Actual: 'mọcsâulạiđamvọcnhưvôvôhôkhókhóthườngđâylàdàngxevàchỉvớikétnụmcổbìnhthườngchúngtacũngxequênxemọckétđidàng'
+10-29 18:11:58.798 I/flutter ( 4272): Missing official-reference keyword "động vật". Actual raw transcript: "Mọc sâu, lại đam vọc như vô vô hô khó khó thường, đây là dàng xe và chỉ với két nụm cổ bình thường. Chúng ta cũng xe. Quên xe, mọc két đi dàng.".
+10-29 18:11:58.798 I/flutter ( 4272): }, zh: {dataset: google/fleurs, config: cmn_hans_cn, fixture: cmn_hans_cn-10149760684641961155.wav, reference: 因为远离大陆，哺乳动物无法长途跋涉而来，使得巨龟成为科隆群岛主要的食草动物。, requiredKeywords: [哺乳动物, 科隆群岛], fixtureSha256: 577a635c2261680c61dda5fecbc4f83bff6f37f453665b8d9d1a68f210f57c0a, license: CC-BY-4.0, text: 因为原理大陆普通通我反正是20%的聚规程会可能去连主要的食堂的我, modelLoadMs: 476, decodeMs: 941, samples: 119040, sampleRate: 16000, audioSeconds: 7.44, language: zh, model: whisper-tiny-int8, failure: Expected: contains '哺乳动物'
+10-29 18:11:58.798 I/flutter ( 4272):   Actual: '因为原理大陆普通通我反正是20%的聚规程会可能去连主要的食堂的我'
+10-29 18:11:58.798 I/flutter ( 4272): Missing official-reference keyword "哺乳动物". Actual raw transcript: "因为原理大陆普通通我反正是20%的聚规程会可能去连主要的食堂的我".
+10-29 18:11:58.801 I/flutter ( 4272): 00:09 +2 -2: Some tests failed.
