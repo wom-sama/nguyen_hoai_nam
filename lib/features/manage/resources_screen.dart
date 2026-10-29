@@ -749,7 +749,7 @@ class _ResourceEditorState extends State<ResourceEditor> {
           'Bán kính chấm công (m)',
           kind: 'number',
           minimum: 20,
-          maximum: 5000,
+          maximum: 200000,
         ),
         for (final entry in branchTimePolicyLabels.entries)
           _Field(
