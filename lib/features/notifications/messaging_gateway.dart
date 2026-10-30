@@ -4,7 +4,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 
-enum NotificationDestination { home, corrections, handovers }
+enum NotificationDestination { home, corrections, handovers, profile }
 
 /// Push data is only a routing hint. Details always come from an authorized API.
 class PushHint {
@@ -22,6 +22,8 @@ class PushHint {
       'shift_assigned' => NotificationDestination.home,
       'correction_reviewed' => NotificationDestination.corrections,
       'handover_submitted' => NotificationDestination.handovers,
+      'profile_updated' when data['entityId'] == recipient =>
+        NotificationDestination.profile,
       _ => null,
     };
     return destination == null

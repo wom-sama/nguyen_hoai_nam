@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/models.dart';
+import '../../core/api_client.dart';
 import '../../core/session.dart';
 import '../../core/location.dart';
 import '../../ui/components.dart';
@@ -54,7 +57,9 @@ Json resourceMutation(String resource, Json candidate, {Json? initial}) {
   };
   const dates = {'startsAt', 'endsAt', 'requestedCheckIn', 'requestedCheckOut'};
   Object? comparable(String key, Object? value) =>
-      dates.contains(key) && value != null
+      (key == 'email' || key == 'username') && value != null
+      ? value.toString().trim().toLowerCase()
+      : dates.contains(key) && value != null
       ? DateTime.parse(value.toString()).toUtc().toIso8601String()
       : value;
   final result = <String, dynamic>{};
@@ -239,25 +244,64 @@ class ResourceScreen extends StatefulWidget {
   State<ResourceScreen> createState() => _ResourceScreenState();
 }
 
-class _ResourceScreenState extends State<ResourceScreen> {
+class _ResourceScreenState extends State<ResourceScreen>
+    with WidgetsBindingObserver {
   late Future<List<Json>> _future;
   String _query = '';
+  String _employeeFilter = 'all';
+  String? _loadedScope;
+  int _loadEpoch = 0;
+  Map<String, String> _branchLabels = {};
+  String _scope(AppUser? user) => '${user?.id}|${user?.role}|${user?.branchId}';
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _load();
   }
 
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final session = Provider.of<SessionController>(context);
+    if (_loadedScope != _scope(session.user)) _load();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed &&
+        mounted &&
+        ModalRoute.of(context)?.isCurrent == true) {
+      unawaited(_refresh());
+    }
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
   void _load() {
-    _future = context
-        .read<SessionController>()
-        .api
-        .get('/${widget.resource}')
-        .then(
-          (value) => (value as List)
-              .map((e) => Map<String, dynamic>.from(e as Map))
-              .toList(),
-        );
+    final session = context.read<SessionController>();
+    _loadedScope = _scope(session.user);
+    _future = _readRows(session, ++_loadEpoch);
+  }
+
+  Future<List<Json>> _readRows(SessionController session, int epoch) async {
+    final results = await Future.wait([
+      session.api.get('/${widget.resource}'),
+      if (widget.resource == 'employees') session.api.get('/branches'),
+    ]);
+    if (widget.resource == 'employees' && mounted && epoch == _loadEpoch) {
+      _branchLabels = {
+        for (final row in results[1] as List)
+          row['id'] as String: row['name'] as String,
+      };
+    }
+    return (results[0] as List)
+        .map((row) => Map<String, dynamic>.from(row as Map))
+        .toList();
   }
 
   Future<void> _refresh() async {
@@ -355,10 +399,25 @@ class _ResourceScreenState extends State<ResourceScreen> {
   @override
   Widget build(BuildContext context) {
     final user = context.watch<SessionController>().user!;
+    if (widget.resource == 'employees' && !user.canManage) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Nhân viên')),
+        body: const AppPage(
+          children: [
+            Notice('Quyền tài khoản đã thay đổi. Quay lại để tiếp tục.'),
+          ],
+        ),
+      );
+    }
     return Scaffold(
       appBar: AppBar(
         title: Text(resourceLabel(widget.resource)),
         actions: [
+          IconButton(
+            tooltip: 'Cập nhật danh sách',
+            onPressed: _refresh,
+            icon: const Icon(Icons.refresh),
+          ),
           if (_canCreate(user) && widget.resource != 'branches')
             IconButton(
               tooltip: 'Thêm mới',
@@ -387,10 +446,22 @@ class _ResourceScreenState extends State<ResourceScreen> {
           ),
           const SizedBox(height: 20),
           AsyncPanel<List<Json>>(
+            key: ValueKey('${widget.resource}|$_loadedScope'),
             future: _future,
+            keepDataWhileLoading: true,
             onRetry: () => setState(_load),
             builder: (rows) {
               final visible = rows
+                  .where(
+                    (row) =>
+                        widget.resource != 'employees' ||
+                        switch (_employeeFilter) {
+                          'pending' => row['status'] == 'pending',
+                          'unassigned' =>
+                            row['role'] != 'admin' && row['branchId'] == null,
+                          _ => true,
+                        },
+                  )
                   .where(
                     (row) =>
                         [
@@ -403,179 +474,245 @@ class _ResourceScreenState extends State<ResourceScreen> {
                         ),
                   )
                   .toList();
-              if (visible.isEmpty) {
-                return EmptyState(
-                  title: rows.isEmpty
-                      ? 'Chưa có dữ liệu'
-                      : 'Chưa tìm thấy kết quả',
-                  message: rows.isEmpty
-                      ? 'Thêm dữ liệu đầu tiên để bắt đầu quản lý.'
-                      : 'Thử tên hoặc từ khóa khác.',
-                  action: _canCreate(user)
-                      ? OutlinedButton.icon(
-                          onPressed: () => _edit(),
-                          icon: const Icon(Icons.add),
-                          label: Text(
-                            widget.resource == 'branches'
-                                ? 'Thêm chi nhánh'
-                                : 'Thêm mới',
+              final filters = widget.resource == 'employees'
+                  ? Wrap(
+                      spacing: 8,
+                      children: [
+                        for (final choice in {
+                          'all': 'Tất cả (${rows.length})',
+                          'pending':
+                              'Chờ duyệt (${rows.where((row) => row['status'] == 'pending').length})',
+                          'unassigned':
+                              'Chưa gán chi nhánh (${rows.where((row) => row['role'] != 'admin' && row['branchId'] == null).length})',
+                        }.entries)
+                          ChoiceChip(
+                            label: Text(choice.value),
+                            selected: _employeeFilter == choice.key,
+                            onSelected: (_) =>
+                                setState(() => _employeeFilter = choice.key),
                           ),
-                        )
-                      : null,
+                      ],
+                    )
+                  : null;
+              if (visible.isEmpty) {
+                return Column(
+                  children: [
+                    ?filters,
+                    EmptyState(
+                      title: rows.isEmpty
+                          ? 'Chưa có dữ liệu'
+                          : 'Chưa tìm thấy kết quả',
+                      message: rows.isEmpty
+                          ? 'Thêm dữ liệu đầu tiên để bắt đầu quản lý.'
+                          : 'Thử tên hoặc từ khóa khác.',
+                      action: _canCreate(user)
+                          ? OutlinedButton.icon(
+                              onPressed: () => _edit(),
+                              icon: const Icon(Icons.add),
+                              label: Text(
+                                widget.resource == 'branches'
+                                    ? 'Thêm chi nhánh'
+                                    : 'Thêm mới',
+                              ),
+                            )
+                          : null,
+                    ),
+                  ],
                 );
               }
               return Column(
-                children: visible
-                    .map(
-                      (row) => Surface(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
+                children:
+                    visible
+                        .map<Widget>(
+                          (row) => Surface(
+                            child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Expanded(
-                                  child: Text(
-                                    recordTitle(widget.resource, row),
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .titleMedium,
-                                  ),
+                                Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        recordTitle(widget.resource, row),
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .titleMedium,
+                                      ),
+                                    ),
+                                    if (row['status'] != null)
+                                      StatusPill(row['status'].toString()),
+                                  ],
                                 ),
-                                if (row['status'] != null)
-                                  StatusPill(row['status'].toString()),
+                                const SizedBox(height: 10),
+                                if (widget.resource == 'employees') ...[
+                                  Text(
+                                    '@${row['username']}',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                  Text(
+                                    row['email'].toString(),
+                                    style: const TextStyle(
+                                      color: AppColors.muted,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                  StatusPill(row['role'].toString()),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    _branchLabels[row['branchId']] ??
+                                        'Chưa phân chi nhánh',
+                                    style: const TextStyle(
+                                      color: AppColors.muted,
+                                    ),
+                                  ),
+                                  if (row['emailVerified'] != true)
+                                    const Text(
+                                      'Email chưa xác thực',
+                                      style: TextStyle(color: AppColors.pink),
+                                    ),
+                                ],
+                                if (widget.resource == 'branches') ...[
+                                  Text(row['address'].toString()),
+                                  InfoRow(
+                                    'Phạm vi',
+                                    '${row['radiusMeters']} m',
+                                  ),
+                                  if (row['timePolicy'] is Map) ...[
+                                    InfoRow(
+                                      'Vào sớm',
+                                      '${row['timePolicy']['checkInEarlyMinutes']} phút',
+                                    ),
+                                    InfoRow(
+                                      'Ân hạn muộn',
+                                      '${row['timePolicy']['lateGraceMinutes']} phút',
+                                    ),
+                                    InfoRow(
+                                      'Ân hạn về sớm',
+                                      '${row['timePolicy']['earlyLeaveGraceMinutes']} phút',
+                                    ),
+                                    InfoRow(
+                                      'Ra muộn tối đa',
+                                      '${row['timePolicy']['checkOutLateMinutes']} phút',
+                                    ),
+                                  ],
+                                ],
+                                if (widget.resource == 'shifts') ...[
+                                  if (row['employeeName'] != null)
+                                    InfoRow(
+                                      'Nhân viên',
+                                      row['employeeName'].toString(),
+                                    ),
+                                  if (row['branchName'] != null)
+                                    InfoRow(
+                                      'Chi nhánh',
+                                      row['branchName'].toString(),
+                                    ),
+                                  InfoRow(
+                                    'Ngày làm',
+                                    dateText(row['startsAt']),
+                                  ),
+                                  InfoRow(
+                                    'Thời gian',
+                                    '${timeText(row['startsAt'])} – ${timeText(row['endsAt'])}',
+                                  ),
+                                  if (row['planLocked'] == true)
+                                    const Padding(
+                                      padding: EdgeInsets.only(top: 8),
+                                      child: Text(
+                                        'Đã ghi công hoặc có đơn điều chỉnh: chỉ sửa tên ca.',
+                                        style: TextStyle(
+                                          color: AppColors.muted,
+                                          fontSize: 11,
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                                if (widget.resource == 'corrections') ...[
+                                  Text(row['reason'].toString()),
+                                  InfoRow(
+                                    'Giờ vào',
+                                    timeText(row['requestedCheckIn']),
+                                  ),
+                                  InfoRow(
+                                    'Giờ ra',
+                                    timeText(row['requestedCheckOut']),
+                                  ),
+                                  if ((row['resolutionNote']?.toString() ?? '')
+                                      .isNotEmpty)
+                                    InfoRow(
+                                      'Phản hồi',
+                                      row['resolutionNote'].toString(),
+                                    ),
+                                ],
+                                if (_canEdit(user, row)) ...[
+                                  const Divider(),
+                                  Wrap(
+                                    spacing: 8,
+                                    children: [
+                                      OutlinedButton.icon(
+                                        onPressed: () => _edit(row),
+                                        icon: const Icon(
+                                          Icons.edit_outlined,
+                                          size: 18,
+                                        ),
+                                        label: Text(
+                                          widget.resource == 'employees'
+                                              ? 'Phân quyền & chi nhánh'
+                                              : 'Chỉnh sửa',
+                                        ),
+                                      ),
+                                      if (_canDelete(user, row))
+                                        TextButton.icon(
+                                          onPressed: () => _delete(row),
+                                          icon: const Icon(
+                                            Icons.delete_outline,
+                                            size: 18,
+                                          ),
+                                          label: Text(
+                                            widget.resource == 'corrections'
+                                                ? 'Rút đơn'
+                                                : 'Xóa',
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                ],
+                                if (widget.resource == 'corrections' &&
+                                    user.canManage &&
+                                    row['employeeId'] != user.id &&
+                                    row['status'] == 'pending') ...[
+                                  const Divider(),
+                                  Wrap(
+                                    spacing: 8,
+                                    children: [
+                                      FilledButton.icon(
+                                        onPressed: () =>
+                                            _review(row, 'approved'),
+                                        icon: const Icon(Icons.check),
+                                        label: const Text('Duyệt đơn'),
+                                      ),
+                                      TextButton(
+                                        onPressed: () =>
+                                            _review(row, 'rejected'),
+                                        child: const Text('Từ chối'),
+                                      ),
+                                    ],
+                                  ),
+                                ],
                               ],
                             ),
-                            const SizedBox(height: 10),
-                            if (widget.resource == 'employees') ...[
-                              Text(
-                                row['email'].toString(),
-                                style: const TextStyle(color: AppColors.muted),
-                              ),
-                              const SizedBox(height: 8),
-                              StatusPill(row['role'].toString()),
-                            ],
-                            if (widget.resource == 'branches') ...[
-                              Text(row['address'].toString()),
-                              InfoRow('Phạm vi', '${row['radiusMeters']} m'),
-                              if (row['timePolicy'] is Map) ...[
-                                InfoRow(
-                                  'Vào sớm',
-                                  '${row['timePolicy']['checkInEarlyMinutes']} phút',
-                                ),
-                                InfoRow(
-                                  'Ân hạn muộn',
-                                  '${row['timePolicy']['lateGraceMinutes']} phút',
-                                ),
-                                InfoRow(
-                                  'Ân hạn về sớm',
-                                  '${row['timePolicy']['earlyLeaveGraceMinutes']} phút',
-                                ),
-                                InfoRow(
-                                  'Ra muộn tối đa',
-                                  '${row['timePolicy']['checkOutLateMinutes']} phút',
-                                ),
-                              ],
-                            ],
-                            if (widget.resource == 'shifts') ...[
-                              if (row['employeeName'] != null)
-                                InfoRow(
-                                  'Nhân viên',
-                                  row['employeeName'].toString(),
-                                ),
-                              if (row['branchName'] != null)
-                                InfoRow(
-                                  'Chi nhánh',
-                                  row['branchName'].toString(),
-                                ),
-                              InfoRow('Ngày làm', dateText(row['startsAt'])),
-                              InfoRow(
-                                'Thời gian',
-                                '${timeText(row['startsAt'])} – ${timeText(row['endsAt'])}',
-                              ),
-                              if (row['planLocked'] == true)
-                                const Padding(
-                                  padding: EdgeInsets.only(top: 8),
-                                  child: Text(
-                                    'Đã ghi công hoặc có đơn điều chỉnh: chỉ sửa tên ca.',
-                                    style: TextStyle(
-                                      color: AppColors.muted,
-                                      fontSize: 11,
-                                    ),
-                                  ),
-                                ),
-                            ],
-                            if (widget.resource == 'corrections') ...[
-                              Text(row['reason'].toString()),
-                              InfoRow(
-                                'Giờ vào',
-                                timeText(row['requestedCheckIn']),
-                              ),
-                              InfoRow(
-                                'Giờ ra',
-                                timeText(row['requestedCheckOut']),
-                              ),
-                              if ((row['resolutionNote']?.toString() ?? '')
-                                  .isNotEmpty)
-                                InfoRow(
-                                  'Phản hồi',
-                                  row['resolutionNote'].toString(),
-                                ),
-                            ],
-                            if (_canEdit(user, row)) ...[
-                              const Divider(),
-                              Wrap(
-                                spacing: 8,
-                                children: [
-                                  OutlinedButton.icon(
-                                    onPressed: () => _edit(row),
-                                    icon: const Icon(
-                                      Icons.edit_outlined,
-                                      size: 18,
-                                    ),
-                                    label: const Text('Chỉnh sửa'),
-                                  ),
-                                  if (_canDelete(user, row))
-                                    TextButton.icon(
-                                      onPressed: () => _delete(row),
-                                      icon: const Icon(
-                                        Icons.delete_outline,
-                                        size: 18,
-                                      ),
-                                      label: Text(
-                                        widget.resource == 'corrections'
-                                            ? 'Rút đơn'
-                                            : 'Xóa',
-                                      ),
-                                    ),
-                                ],
-                              ),
-                            ],
-                            if (widget.resource == 'corrections' &&
-                                user.canManage &&
-                                row['employeeId'] != user.id &&
-                                row['status'] == 'pending') ...[
-                              const Divider(),
-                              Wrap(
-                                spacing: 8,
-                                children: [
-                                  FilledButton.icon(
-                                    onPressed: () => _review(row, 'approved'),
-                                    icon: const Icon(Icons.check),
-                                    label: const Text('Duyệt đơn'),
-                                  ),
-                                  TextButton(
-                                    onPressed: () => _review(row, 'rejected'),
-                                    child: const Text('Từ chối'),
-                                  ),
-                                ],
-                              ),
-                            ],
-                          ],
-                        ),
-                      ),
-                    )
-                    .toList(),
+                          ),
+                        )
+                        .toList()
+                      ..insertAll(0, [
+                        if (filters != null)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 16),
+                            child: filters,
+                          ),
+                      ]),
               );
             },
           ),
@@ -614,7 +751,7 @@ class _ResourceEditorState extends State<ResourceEditor> {
   final Map<String, TextEditingController> _controllers = {};
   final Map<String, dynamic> _values = {};
   List<Json> _branches = [], _employees = [], _shifts = [];
-  bool _loading = true, _saving = false;
+  bool _loading = true, _saving = false, _loadFailed = false;
   String? _error;
   bool get _editing => widget.initial != null;
   @override
@@ -640,30 +777,40 @@ class _ResourceEditorState extends State<ResourceEditor> {
   }
 
   Future<void> _prepare() async {
+    if (mounted) {
+      setState(() {
+        _loading = true;
+        _loadFailed = false;
+        _error = null;
+      });
+    }
     try {
       final session = context.read<SessionController>();
-      final result = await Future.wait([
-        session.api.get('/branches'),
-        session.api.get('/employees'),
-        session.api.get('/shifts'),
-      ]);
+      final paths = switch (widget.resource) {
+        'employees' => ['/branches'],
+        'shifts' => ['/branches', '/employees'],
+        'corrections' => ['/shifts'],
+        _ => <String>[],
+      };
+      final result = await Future.wait(paths.map(session.api.get));
       if (!mounted) return;
-      _branches = (result[0] as List)
-          .map((e) => Map<String, dynamic>.from(e as Map))
-          .toList();
-      _employees = (result[1] as List)
-          .map((e) => Map<String, dynamic>.from(e as Map))
-          .toList();
-      _shifts = (result[2] as List)
-          .map((e) => Map<String, dynamic>.from(e as Map))
+      List<Json> rows(String path) => paths.contains(path)
+          ? (result[paths.indexOf(path)] as List)
+                .map((row) => Map<String, dynamic>.from(row as Map))
+                .toList()
+          : [];
+      _branches = rows('/branches');
+      _employees = rows('/employees');
+      _shifts = rows('/shifts')
           .where((s) => s['employeeId'] == session.user!.id)
           .toList();
       if (!_editing && widget.resource == 'employees') {
-        _values['role'] = 'employee';
-        _values['status'] = 'pending';
+        _values['role'] ??= 'employee';
+        _values['status'] ??= 'pending';
       }
     } catch (e) {
       _error = errorMessage(e);
+      _loadFailed = true;
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -676,10 +823,13 @@ class _ResourceEditorState extends State<ResourceEditor> {
     final eligible = _employees.where(
       (u) =>
           u['status'] == 'active' &&
-          (_values['branchId'] == null || u['branchId'] == _values['branchId']),
+          u['emailVerified'] == true &&
+          _values['branchId'] != null &&
+          u['branchId'] == _values['branchId'],
     );
     final people = {
-      for (final u in eligible) u['id'].toString(): u['fullName'].toString(),
+      for (final u in eligible)
+        u['id'].toString(): '${u['fullName']} · @${u['username']}',
     };
     final shifts = {
       for (final s in _shifts)
@@ -723,7 +873,7 @@ class _ResourceEditorState extends State<ResourceEditor> {
           'branchId',
           'Chi nhánh',
           kind: 'select',
-          required: false,
+          required: _values['role'] != 'admin' && _values['status'] == 'active',
           choices: branches,
         ),
       ],
@@ -803,6 +953,7 @@ class _ResourceEditorState extends State<ResourceEditor> {
     () => TextEditingController(text: _values[f.key]?.toString() ?? ''),
   );
   Future<void> _pickDate(_Field f) async {
+    if (_saving) return;
     final initial =
         DateTime.tryParse(_values[f.key]?.toString() ?? '')?.toLocal() ??
         DateTime.now();
@@ -890,18 +1041,43 @@ class _ResourceEditorState extends State<ResourceEditor> {
       _error = null;
     });
     try {
-      final api = context.read<SessionController>().api;
+      final session = context.read<SessionController>();
+      final api = session.api;
+      Json saved;
       if (_editing) {
-        await api.patch(
+        saved = await api.patch(
           '/${widget.resource}/${widget.initial!['id']}',
           changes,
-        );
+        ) as Json;
       } else {
-        await api.post('/${widget.resource}', changes);
+        saved = await api.post('/${widget.resource}', changes) as Json;
+      }
+      final confirmable = Map<String, dynamic>.from(changes)
+        ..remove('password');
+      if (resourceMutation(
+        widget.resource,
+        confirmable,
+        initial: saved,
+      ).isNotEmpty) {
+        throw const ApiException(
+          'UPDATE_NOT_CONFIRMED',
+          'Chưa xác nhận được thay đổi. Hãy tải lại dữ liệu trước khi thử lại.',
+        );
+      }
+      if (widget.resource == 'employees' && saved['id'] == session.user?.id) {
+        if (saved['status'] == 'suspended') {
+          if (mounted) Navigator.pop(context, true);
+          await session.logout();
+          return;
+        }
+        await session.refreshProfile();
       }
       if (mounted) Navigator.pop(context, true);
     } catch (e) {
-      if (mounted) setState(() => _error = errorMessage(e));
+      if (mounted) {
+        setState(() => _error = errorMessage(e));
+        showFailure(context, e);
+      }
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -917,12 +1093,25 @@ class _ResourceEditorState extends State<ResourceEditor> {
     ),
     body: _loading
         ? const Center(child: CircularProgressIndicator())
+        : _loadFailed
+        ? AppPage(
+            children: [
+              Notice(_error!, isError: true),
+              OutlinedButton.icon(
+                onPressed: _prepare,
+                icon: const Icon(Icons.refresh),
+                label: const Text('Tải lại dữ liệu'),
+              ),
+            ],
+          )
         : AppPage(
             children: [
               if (_error != null) Notice(_error!, isError: true),
               if (widget.resource == 'employees')
-                const Notice(
-                  'Nhân viên cần xác thực email bằng mã xác nhận và được phân chi nhánh trước khi xếp ca.',
+                Notice(
+                  _editing
+                      ? '@${widget.initial!['username']} · ${widget.initial!['email']}'
+                      : 'Tạo hồ sơ nhân viên',
                 ),
               if (widget.resource == 'shifts' &&
                   widget.initial?['planLocked'] == true)
@@ -1049,11 +1238,19 @@ class _ResourceEditorState extends State<ResourceEditor> {
     if (f.kind == 'select') {
       final selected = _values[f.key]?.toString();
       final valid = f.choices.containsKey(selected) ? selected : null;
-      return DropdownButtonFormField<String>(
+      final field = DropdownButtonFormField<String>(
         key: ValueKey(f.key + f.choices.keys.join()),
         initialValue: valid,
         isExpanded: true,
-        decoration: InputDecoration(labelText: f.label),
+        decoration: InputDecoration(
+          labelText: f.label,
+          helperMaxLines: 3,
+          helperText: widget.resource == 'shifts' && f.key == 'employeeId'
+              ? _values['branchId'] == null
+                    ? 'Chọn chi nhánh trước khi phân công.'
+                    : 'Có ${f.choices.length} nhân viên sẵn sàng tại chi nhánh đã chọn.'
+              : null,
+        ),
         items: [
           if (!f.required)
             const DropdownMenuItem(
@@ -1078,6 +1275,36 @@ class _ResourceEditorState extends State<ResourceEditor> {
             ? 'Vui lòng chọn ${f.label.toLowerCase()}.'
             : null,
       );
+      if (widget.resource == 'shifts' &&
+          f.key == 'employeeId' &&
+          context.read<SessionController>().user!.isAdmin) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            field,
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: _saving
+                    ? null
+                    : () async {
+                        await Navigator.push(
+                          context,
+                          MaterialPageRoute<void>(
+                            builder: (_) =>
+                                const ResourceScreen(resource: 'employees'),
+                          ),
+                        );
+                        if (mounted) await _prepare();
+                      },
+                icon: const Icon(Icons.manage_accounts_outlined),
+                label: const Text('Gán nhân viên vào chi nhánh'),
+              ),
+            ),
+          ],
+        );
+      }
+      return field;
     }
     if (f.kind == 'date') {
       final raw = _values[f.key]?.toString();

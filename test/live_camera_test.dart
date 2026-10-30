@@ -111,13 +111,19 @@ class _Camera extends CameraPlatform {
 class _Translator extends TranslationService {
   int recognized = 0, translated = 0;
   Completer<void>? gate;
+  Rect bounds = const Rect.fromLTWH(.1, .2, 1, .7);
+  bool empty = false;
   @override
-  Future<String> recognizeFrame(
+  Future<OcrPage> recognizePage(
     InputImage image, {
     required String sourceLanguage,
   }) async {
     recognized++;
-    return 'Xin chào';
+    if (empty) throw const ApiException('OCR_EMPTY', 'Chưa thấy chữ');
+    return OcrPage(
+      text: 'Xin chào',
+      regions: [OcrRegion(text: 'Xin chào', bounds: bounds)],
+    );
   }
 
   @override
@@ -263,6 +269,29 @@ void main() {
       camera.calls.indexOf('dispose1'),
       lessThan(camera.calls.indexOf('create2')),
     );
+    expect(find.byKey(const ValueKey('translated-region-0')), findsNothing);
+    await tester.pumpWidget(const SizedBox());
+    await flushFiles(tester);
+  });
+
+  testWidgets('same text moves its overlay without another translation', (
+    tester,
+  ) async {
+    await open(tester);
+    await flushFiles(tester);
+    final label = find.byKey(const ValueKey('translated-region-0'));
+    final before = tester.getTopLeft(label);
+    translator.bounds = const Rect.fromLTWH(.5, .5, 1, .7);
+    await tester.pump(const Duration(milliseconds: 1500));
+    camera.frame();
+    await flushFiles(tester);
+    expect(tester.getTopLeft(label).dx, greaterThan(before.dx));
+    expect(translator.translated, 1);
+    translator.empty = true;
+    await tester.pump(const Duration(milliseconds: 1500));
+    camera.frame();
+    await flushFiles(tester);
+    expect(label, findsNothing);
     await tester.pumpWidget(const SizedBox());
     await flushFiles(tester);
   });
@@ -309,6 +338,25 @@ void main() {
   );
 
   testWidgets(
+    'tapping a region pauses capture and opens its full translation',
+    (tester) async {
+      await open(tester);
+      await flushFiles(tester);
+      await tester.tap(find.byKey(const ValueKey('translated-region-0')));
+      await flushFiles(tester);
+      await tester.pumpAndSettle();
+      expect(camera.calls, contains('dispose1'));
+      expect(find.byKey(const ValueKey('translated-region-0')), findsNothing);
+      expect(find.text('Bản dịch'), findsOneWidget);
+      expect(find.text('Hello'), findsOneWidget);
+      expect(find.text('Xin chào'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox());
+      await flushFiles(tester);
+    },
+  );
+
+  testWidgets(
     'pausing releases camera without waiting for pending translation',
     (tester) async {
       translator.gate = Completer<void>();
@@ -344,6 +392,8 @@ void main() {
       await flushFiles(tester);
       await tester.pumpAndSettle();
       await tester.tap(find.text('Turn off the machine'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Xem nội dung'));
       await tester.pumpAndSettle();
       expect(find.text('Tắt máy'), findsOneWidget);
       expect(find.text('private-history-id'), findsNothing);

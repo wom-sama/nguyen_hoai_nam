@@ -75,25 +75,75 @@ class AttendanceApp extends StatelessWidget {
       ChangeNotifierProvider.value(value: session),
       ListenableProvider<NotificationController?>.value(value: notifications),
     ],
-    child: MaterialApp(
-      title: 'Nguyễn Hoài Nam',
-      debugShowCheckedModeBanner: false,
-      theme: appTheme(),
-      locale: const Locale('vi'),
-      supportedLocales: const [Locale('vi'), Locale('en'), Locale('zh')],
-      localizationsDelegates: GlobalMaterialLocalizations.delegates,
-      home: NotificationHost(
-        controller: notifications,
-        child: firstRun == null
-            ? const _AuthGate()
-            : FirstRunGate(controller: firstRun!, child: const _AuthGate()),
+    child: Consumer<SessionController>(
+      builder: (context, current, child) => MaterialApp(
+        key: ValueKey(
+          '${current.user?.id}|${current.user?.role}|${current.user?.branchId}|${current.user?.status}',
+        ),
+        title: 'Nguyễn Hoài Nam',
+        debugShowCheckedModeBanner: false,
+        theme: appTheme(),
+        locale: const Locale('vi'),
+        supportedLocales: const [Locale('vi'), Locale('en'), Locale('zh')],
+        localizationsDelegates: GlobalMaterialLocalizations.delegates,
+        home: NotificationHost(
+          controller: notifications,
+          child: firstRun == null
+              ? const _AuthGate()
+              : FirstRunGate(controller: firstRun!, child: const _AuthGate()),
+        ),
       ),
     ),
   );
 }
 
-class _AuthGate extends StatelessWidget {
+class _AuthGate extends StatefulWidget {
   const _AuthGate();
+  @override
+  State<_AuthGate> createState() => _AuthGateState();
+}
+
+class _AuthGateState extends State<_AuthGate> with WidgetsBindingObserver {
+  Timer? _profilePoll;
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _startProfilePoll();
+  }
+
+  void _syncProfile() {
+    if (mounted) unawaited(context.read<SessionController>().syncProfile());
+  }
+
+  void _startProfilePoll({bool immediate = false}) {
+    _profilePoll?.cancel();
+    final state = WidgetsBinding.instance.lifecycleState;
+    if (state != null && state != AppLifecycleState.resumed) return;
+    _profilePoll = Timer.periodic(
+      const Duration(seconds: 10),
+      (_) => _syncProfile(),
+    );
+    if (immediate) _syncProfile();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _startProfilePoll(immediate: true);
+    } else {
+      _profilePoll?.cancel();
+      _profilePoll = null;
+    }
+  }
+
+  @override
+  void dispose() {
+    _profilePoll?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     final session = context.watch<SessionController>();
@@ -103,8 +153,12 @@ class _AuthGate extends StatelessWidget {
     if (!session.api.isConfigured) return const ServiceUnavailableScreen();
     if (session.user != null) {
       if (!session.user!.isActive) return const PendingAccountScreen();
-      return _AppShell(key: ValueKey(session.user!.id + session.user!.role));
+      final user = session.user!;
+      return _AppShell(
+        key: ValueKey('${user.id}|${user.role}|${user.branchId}'),
+      );
     }
+    if (session.restoreRetryable) return const SessionRestoreRetryScreen();
     if (session.challenge != null) return const OtpScreen();
     return const AuthScreen();
   }
@@ -185,7 +239,10 @@ class _AppShellState extends State<_AppShell> {
       });
     }
     final pages = <Widget>[
-      HomeScreen(key: ValueKey('home-$_homeRevision')),
+      HomeScreen(
+        active: _index == 0 && ModalRoute.of(context)?.isCurrent == true,
+        refreshRevision: _homeRevision,
+      ),
       HandoversScreen(key: ValueKey('handovers-$_handoverRevision')),
       TranslationScreen(key: _translationKey),
       if (managing) const ManagementScreen(),

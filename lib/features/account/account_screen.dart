@@ -34,6 +34,18 @@ class _AccountScreenState extends State<AccountScreen> {
         .then((value) => Map<String, dynamic>.from(value as Map));
   }
 
+  Future<void> _refreshProfile() async {
+    final session = context.read<SessionController>();
+    final refreshed = await session.refreshProfile();
+    if (!mounted) return;
+    showMessage(
+      context,
+      refreshed
+          ? 'Đã cập nhật quyền và trạng thái tài khoản.'
+          : session.error ?? 'Chưa cập nhật được tài khoản. Vui lòng thử lại.',
+    );
+  }
+
   Future<void> _enroll() async {
     final session = context.read<SessionController>();
     final image = await Navigator.push<String>(
@@ -76,8 +88,14 @@ class _AccountScreenState extends State<AccountScreen> {
     final session = context.watch<SessionController>(), user = session.user!;
     final notifications = context.watch<NotificationController?>();
     return AppPage(
+      onRefresh: _refreshProfile,
       children: [
         const LedgerHeading(kicker: 'HỒ SƠ / HN', title: 'Tài khoản'),
+        if (session.profileSyncError != null)
+          const Notice(
+            'Chưa cập nhật được quyền và trạng thái. Thông tin đang hiển thị là lần tải gần nhất.',
+            isError: true,
+          ),
         LedgerSheet(
           label: 'HỒ SƠ',
           reference: user.roleLabel.toUpperCase(),
@@ -100,6 +118,17 @@ class _AccountScreenState extends State<AccountScreen> {
               Align(
                 alignment: Alignment.centerLeft,
                 child: StatusPill(user.status),
+              ),
+              if (session.profileSyncedAt != null)
+                InfoRow(
+                  'Cập nhật lúc',
+                  timeText(session.profileSyncedAt!.toIso8601String()),
+                ),
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                onPressed: session.busy ? null : _refreshProfile,
+                icon: const Icon(Icons.refresh),
+                label: const Text('Kiểm tra quyền và trạng thái'),
               ),
             ],
           ),

@@ -122,6 +122,9 @@ class Fixture {
         if (request.url.path.endsWith('/face/status')) {
           return reply({'enrolled': false});
         }
+        if (request.url.path.endsWith('/me')) {
+          return reply(nextProfile ?? userData(session.user!.id));
+        }
         if (request.method == 'POST') {
           final body = jsonDecode(request.body) as Map;
           return reply({
@@ -149,6 +152,7 @@ class Fixture {
   final messaging = FakeMessaging();
   final consent = MemoryConsent();
   final requests = <http.Request>[];
+  Map<String, dynamic>? nextProfile;
   Future<void> close() async {
     controller.dispose();
     session.dispose();
@@ -161,6 +165,73 @@ Future<void> flush() => Future<void>.delayed(const Duration(milliseconds: 15));
 
 void main() {
   setUpAll(() => initializeDateFormatting('vi'));
+  test(
+    'profile pushes require the recipient to match the changed identity',
+    () {
+      expect(
+        PushHint.parse({
+          'eventType': 'profile_updated',
+          'recipientId': 'alice',
+          'entityId': 'alice',
+        })?.destination,
+        NotificationDestination.profile,
+      );
+      expect(
+        PushHint.parse({
+          'eventType': 'profile_updated',
+          'recipientId': 'alice',
+          'entityId': 'bob',
+        }),
+        isNull,
+      );
+    },
+  );
+  test(
+    'own profile push refreshes permissions without navigation, banner or OTP',
+    () async {
+      final f = Fixture();
+      addTearDown(f.close);
+      await f.controller.initialize();
+      await f.controller.enable();
+      final banners = <PushHint>[];
+      final subscription = f.controller.banners.listen(banners.add);
+      addTearDown(subscription.cancel);
+      f.nextProfile = {
+        ...userData('alice'),
+        'role': 'manager',
+        'branchId': 'branch-new',
+      };
+      f.messaging.messages.add(
+        PushHint.parse({
+          'eventType': 'profile_updated',
+          'recipientId': 'alice',
+          'entityId': 'alice',
+          'role': 'admin',
+        })!,
+      );
+      await flush();
+      expect(f.session.user!.role, 'manager');
+      expect(f.session.user!.branchId, 'branch-new');
+      expect(f.controller.navigation, isNull);
+      expect(banners, isEmpty);
+      expect(f.requests.where((r) => r.url.path.contains('/auth/')), isEmpty);
+      expect(f.requests.where((r) => r.url.path.endsWith('/me')).length, 1);
+    },
+  );
+  test('a profile push for another account cannot refresh or replace this identity', () async {
+    final f = Fixture();
+    addTearDown(f.close);
+    f.nextProfile = {...userData('bob'), 'role': 'admin'};
+    await f.controller.open(
+      const PushHint(
+        recipientId: 'bob',
+        destination: NotificationDestination.profile,
+      ),
+    );
+    expect(f.session.user!.id, 'alice');
+    expect(f.requests, isEmpty);
+    expect(f.controller.navigation, isNull);
+  });
   test(
     'initialization never requests permission or registers before opt-in',
     () async {

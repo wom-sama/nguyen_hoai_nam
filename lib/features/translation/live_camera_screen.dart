@@ -15,6 +15,7 @@ import '../../ui/theme.dart';
 import '../handovers/handovers_screen.dart';
 import 'translation_service.dart';
 import 'camera_frame.dart';
+import 'translation_overlay.dart';
 
 class LiveCameraScreen extends StatefulWidget {
   const LiveCameraScreen({
@@ -82,6 +83,9 @@ class _LiveCameraScreenState extends State<LiveCameraScreen>
   Timer? _timer;
   bool _cleanupPending = false, _cleanupFailed = false;
   _CameraTranslation? _result;
+  OcrTranslation? _overlay;
+  Size? _overlaySize;
+  DeviceOrientation? _overlayOrientation;
   String? _error;
   String _status = 'Đang mở camera…', _lastRecognized = '';
   bool _foreground = true, _running = true, _closing = false;
@@ -146,7 +150,7 @@ class _LiveCameraScreenState extends State<LiveCameraScreen>
         );
       }
       final cameras = await availableCameras().timeout(
-        const Duration(seconds: 5),
+        const Duration(seconds: 15),
       );
       if (cameras.isEmpty) throw CameraException('NoCamera', '');
       final selected =
@@ -232,55 +236,72 @@ class _LiveCameraScreenState extends State<LiveCameraScreen>
   ) async {
     try {
       if (!_current(generation)) return;
-      final input = cameraFrameInput(
-        image,
-        camera.description,
-        camera.value.deviceOrientation,
-      );
+      final orientation = camera.value.deviceOrientation;
+      bool frameCurrent() =>
+          _current(generation) &&
+          identical(camera, _camera) &&
+          camera.value.deviceOrientation == orientation;
+      final input = cameraFrameInput(image, camera.description, orientation);
       setState(() => _status = 'Đang đọc chữ…');
-      final original = (await _service.recognizeFrame(
+      final page = await _service.recognizePage(
         input,
         sourceLanguage: widget.sourceLanguage,
-      )).trim();
-      if (!_current(generation)) return;
+      );
+      final original = page.text.trim();
+      if (!frameCurrent()) return;
       if (original.isEmpty) return;
       if (original.length > 6000) {
-        setState(() => _status = 'Hướng camera vào đoạn chữ ngắn hơn');
-        return;
-      }
-      if (original == _lastRecognized && _result != null) {
-        setState(() => _status = 'Đang dịch trực tiếp');
-        return;
-      }
-      setState(() => _status = 'Đang dịch…');
-      final translated = (await _service.translate(
-        original,
-        sourceLanguage: widget.sourceLanguage,
-        targetLanguage: widget.targetLanguage,
-      )).trim();
-      if (!_current(generation)) return;
-      if (translated.isEmpty || translated.length > 6000) {
-        setState(() => _status = 'Hướng camera vào đoạn chữ ngắn hơn để dịch');
+        setState(() {
+          _overlay = null;
+          _status = 'Hướng camera vào đoạn chữ ngắn hơn';
+        });
         return;
       }
       setState(() {
-        _lastRecognized = original;
-        _result = _CameraTranslation(
-          sourceLanguage: widget.sourceLanguage,
-          targetLanguage: widget.targetLanguage,
-          originalText: original,
-          translatedText: translated,
+        if (original != _lastRecognized) _overlay = null;
+        _status = 'Đang dịch…';
+      });
+      final translatedPage = await _service.translatePage(
+        page,
+        sourceLanguage: widget.sourceLanguage,
+        targetLanguage: widget.targetLanguage,
+      );
+      final translated = translatedPage.translatedText;
+      if (!frameCurrent()) return;
+      if (translated.isEmpty || translated.length > 6000) {
+        setState(() {
+          _overlay = null;
+          _status = 'Hướng camera vào đoạn chữ ngắn hơn để dịch';
+        });
+        return;
+      }
+      setState(() {
+        if (_lastRecognized != original ||
+            _result?.translatedText != translated) {
+          _lastRecognized = original;
+          _result = _CameraTranslation(
+            sourceLanguage: widget.sourceLanguage,
+            targetLanguage: widget.targetLanguage,
+            originalText: original,
+            translatedText: translated,
+          );
+        }
+        _overlay = translatedPage;
+        _overlaySize = uprightImageSize(
+          input.metadata!.size,
+          input.metadata!.rotation,
         );
+        _overlayOrientation = orientation;
         _error = null;
         _status = 'Đang dịch trực tiếp';
       });
     } catch (error) {
       if (!_current(generation)) return;
       if (error is ApiException && error.code == 'OCR_EMPTY') {
-        setState(
-          () => _status =
-              'Chưa thấy chữ. Giữ camera ổn định và chọn nơi đủ sáng.',
-        );
+        setState(() {
+          _overlay = null;
+          _status = 'Chưa thấy chữ. Giữ camera ổn định và chọn nơi đủ sáng.';
+        });
       } else {
         setState(() {
           _error = errorMessage(error);
@@ -293,6 +314,13 @@ class _LiveCameraScreenState extends State<LiveCameraScreen>
 
   Future<void> _releaseCamera() {
     _generation++;
+    if (_overlay != null) {
+      if (mounted && !_closing) {
+        setState(() => _overlay = null);
+      } else {
+        _overlay = null;
+      }
+    }
     _timer?.cancel();
     _timer = null;
     final old = _camera;
@@ -485,6 +513,33 @@ class _LiveCameraScreenState extends State<LiveCameraScreen>
     }
   }
 
+  Widget _preview(CameraController camera) =>
+      ValueListenableBuilder<CameraValue>(
+        valueListenable: camera,
+        builder: (context, value, _) {
+          final portrait =
+              value.deviceOrientation == DeviceOrientation.portraitUp ||
+              value.deviceOrientation == DeviceOrientation.portraitDown;
+          final rawSize = value.previewSize!;
+          final currentOverlay = _overlayOrientation == value.deviceOrientation
+              ? _overlay
+              : null;
+          return TranslationOverlayViewport(
+            imageSize: currentOverlay == null
+                ? (portrait ? Size(rawSize.height, rawSize.width) : rawSize)
+                : _overlaySize!,
+            image: CameraPreview(camera),
+            mirror:
+                camera.description.lensDirection == CameraLensDirection.front,
+            regions: currentOverlay?.regions ?? const [],
+            onRegionTap: (region) async {
+              await _pause();
+              if (mounted) await showOcrRegionDetails(this.context, region);
+            },
+          );
+        },
+      );
+
   @override
   Widget build(BuildContext context) {
     final result = _result;
@@ -516,14 +571,14 @@ class _LiveCameraScreenState extends State<LiveCameraScreen>
             ClipRRect(
               borderRadius: BorderRadius.circular(18),
               child: SizedBox(
-                height: 280,
+                height: 360,
                 child: ColoredBox(
                   color: Colors.black87,
                   child: Stack(
                     fit: StackFit.expand,
                     children: [
                       if (_camera?.value.isInitialized == true)
-                        CameraPreview(_camera!)
+                        _preview(_camera!)
                       else
                         const Center(
                           child: Icon(
@@ -532,33 +587,23 @@ class _LiveCameraScreenState extends State<LiveCameraScreen>
                             size: 48,
                           ),
                         ),
-                      Positioned(
-                        left: 12,
-                        right: 12,
-                        bottom: 12,
-                        child: DecoratedBox(
-                          decoration: BoxDecoration(
-                            color: Colors.black.withValues(alpha: .65),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: Padding(
-                            padding: const EdgeInsets.all(10),
-                            child: Text(
-                              _status,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 12,
-                              ),
-                              textAlign: TextAlign.center,
-                            ),
-                          ),
-                        ),
-                      ),
                     ],
                   ),
                 ),
               ),
             ),
+            const SizedBox(height: 8),
+            Text(
+              _status,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontSize: 12, color: AppColors.muted),
+            ),
+            if (_overlay != null)
+              const Text(
+                'Chạm vùng chữ để xem đầy đủ.',
+                textAlign: TextAlign.center,
+                style: TextStyle(fontSize: 11, color: AppColors.muted),
+              ),
             const SizedBox(height: 12),
             FilledButton.icon(
               key: const ValueKey('toggle-live-camera'),
@@ -596,34 +641,48 @@ class _LiveCameraScreenState extends State<LiveCameraScreen>
                       style: Theme.of(context).textTheme.titleMedium,
                     ),
                     const SizedBox(height: 12),
-                    Text(
-                      translationLanguages[result.sourceLanguage] ?? 'Bản gốc',
-                      style: const TextStyle(
-                        color: AppColors.muted,
-                        fontSize: 11,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    SelectableText(
-                      result.originalText,
-                      style: const TextStyle(fontSize: 13),
-                    ),
-                    const Divider(height: 24),
-                    Text(
-                      translationLanguages[result.targetLanguage] ?? 'Bản dịch',
-                      style: const TextStyle(
-                        color: AppColors.pink,
-                        fontSize: 11,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    SelectableText(
-                      result.translatedText,
-                      style: const TextStyle(
-                        fontSize: 20,
-                        height: 1.5,
-                        fontWeight: FontWeight.w600,
-                      ),
+                    ExpansionTile(
+                      title: const Text('Xem nội dung'),
+                      expansionAnimationStyle:
+                          MediaQuery.disableAnimationsOf(context)
+                          ? AnimationStyle.noAnimation
+                          : null,
+                      tilePadding: EdgeInsets.zero,
+                      childrenPadding: const EdgeInsets.only(bottom: 12),
+                      expandedCrossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Text(
+                          translationLanguages[result.sourceLanguage] ??
+                              'Bản gốc',
+                          style: const TextStyle(
+                            color: AppColors.muted,
+                            fontSize: 11,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        SelectableText(
+                          result.originalText,
+                          style: const TextStyle(fontSize: 13),
+                        ),
+                        const Divider(height: 24),
+                        Text(
+                          translationLanguages[result.targetLanguage] ??
+                              'Bản dịch',
+                          style: const TextStyle(
+                            color: AppColors.pink,
+                            fontSize: 11,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        SelectableText(
+                          result.translatedText,
+                          style: const TextStyle(
+                            fontSize: 20,
+                            height: 1.5,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ],
                     ),
                     const GoogleTranslationAttribution(),
                     const Text(

@@ -33,6 +33,7 @@ class _AuthScreenState extends State<AuthScreen> {
   }
 
   Future<void> _submit() async {
+    if (context.read<SessionController>().busy) return;
     if (!_form.currentState!.validate()) return;
     FocusScope.of(context).unfocus();
     final session = context.read<SessionController>();
@@ -46,12 +47,15 @@ class _AuthScreenState extends State<AuthScreen> {
     } else {
       await session.login(_username.text.trim(), _password.text);
     }
-    _password.clear();
-    _confirm.clear();
+    if (mounted) {
+      _password.clear();
+      _confirm.clear();
+    }
   }
 
   Future<void> _face() async {
-    if (!RegExp(r'^[a-zA-Z0-9_.]{3,32}$').hasMatch(_username.text.trim())) {
+    final username = _username.text.trim();
+    if (!RegExp(r'^[a-zA-Z0-9_.]{3,32}$').hasMatch(username)) {
       showMessage(context, 'Nhập tên đăng nhập trước khi xác thực khuôn mặt.');
       return;
     }
@@ -61,7 +65,7 @@ class _AuthScreenState extends State<AuthScreen> {
         builder: (_) => const FaceCaptureScreen(enrolling: false),
       ),
     );
-    if (image != null) await session.faceLogin(_username.text.trim(), image);
+    if (image != null && mounted) await session.faceLogin(username, image);
   }
 
   @override
@@ -108,10 +112,12 @@ class _AuthScreenState extends State<AuthScreen> {
                     if (_register) ...[
                       TextFormField(
                         controller: _name,
+                        enabled: !session.busy,
                         decoration: const InputDecoration(
                           labelText: 'Họ và tên',
                         ),
                         autofillHints: const [AutofillHints.name],
+                        autocorrect: false,
                         textInputAction: TextInputAction.next,
                         validator: (v) => (v?.trim().length ?? 0) < 2
                             ? 'Nhập họ và tên của bạn.'
@@ -120,9 +126,11 @@ class _AuthScreenState extends State<AuthScreen> {
                       const SizedBox(height: 18),
                       TextFormField(
                         controller: _email,
+                        enabled: !session.busy,
                         decoration: const InputDecoration(labelText: 'Email'),
                         autofillHints: const [AutofillHints.email],
                         keyboardType: TextInputType.emailAddress,
+                        autocorrect: false,
                         textInputAction: TextInputAction.next,
                         validator: (v) =>
                             !RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
@@ -134,6 +142,7 @@ class _AuthScreenState extends State<AuthScreen> {
                     ],
                     TextFormField(
                       controller: _username,
+                      enabled: !session.busy,
                       decoration: const InputDecoration(
                         labelText: 'Tên đăng nhập',
                         prefixIcon: Icon(Icons.person_outline),
@@ -150,6 +159,7 @@ class _AuthScreenState extends State<AuthScreen> {
                     const SizedBox(height: 18),
                     TextFormField(
                       controller: _password,
+                      enabled: !session.busy,
                       obscureText: _obscure,
                       autofillHints: const [AutofillHints.password],
                       decoration: InputDecoration(
@@ -157,7 +167,9 @@ class _AuthScreenState extends State<AuthScreen> {
                         prefixIcon: const Icon(Icons.lock_outline),
                         suffixIcon: IconButton(
                           tooltip: _obscure ? 'Hiện mật khẩu' : 'Ẩn mật khẩu',
-                          onPressed: () => setState(() => _obscure = !_obscure),
+                          onPressed: session.busy
+                              ? null
+                              : () => setState(() => _obscure = !_obscure),
                           icon: Icon(
                             _obscure
                                 ? Icons.visibility_outlined
@@ -177,6 +189,7 @@ class _AuthScreenState extends State<AuthScreen> {
                       const SizedBox(height: 18),
                       TextFormField(
                         controller: _confirm,
+                        enabled: !session.busy,
                         obscureText: _obscure,
                         decoration: const InputDecoration(
                           labelText: 'Nhập lại mật khẩu',
@@ -294,9 +307,18 @@ class _OtpScreenState extends State<OtpScreen> {
             const SizedBox(height: 16),
             PageHeading(
               eyebrow: 'XÁC THỰC EMAIL',
-              title: 'Xác nhận OTP',
+              title: switch (challenge.purpose) {
+                'register' => 'Xác nhận đăng ký',
+                'face_login' => 'Xác nhận đăng nhập khuôn mặt',
+                _ => 'Xác nhận đăng nhập',
+              },
               subtitle: 'Mã 6 chữ số gửi đến ${challenge.maskedEmail}.',
             ),
+            if (session.challengeUsername != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 16),
+                child: InfoRow('Tên đăng nhập', session.challengeUsername!),
+              ),
             if (session.error != null) Notice(session.error!, isError: true),
             Surface(
               child: Column(
@@ -304,6 +326,7 @@ class _OtpScreenState extends State<OtpScreen> {
                 children: [
                   TextField(
                     controller: _code,
+                    enabled: !session.busy,
                     autofocus: true,
                     keyboardType: TextInputType.number,
                     autofillHints: const [AutofillHints.oneTimeCode],
@@ -337,11 +360,15 @@ class _OtpScreenState extends State<OtpScreen> {
                         : () async {
                             if (await session.resendOtp() && mounted) {
                               _code.clear();
-                              setState(
-                                () => _resendAt = DateTime.now().add(
-                                  const Duration(seconds: 60),
-                                ),
-                              );
+                              setState(() {
+                                _challengeId = session.challenge!.id;
+                                _resendAt = DateTime.now().add(
+                                  Duration(
+                                    seconds:
+                                        session.challenge!.retryAfterSeconds,
+                                  ),
+                                );
+                              });
                             }
                           },
                     child: Text(
@@ -358,6 +385,38 @@ class _OtpScreenState extends State<OtpScreen> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class SessionRestoreRetryScreen extends StatelessWidget {
+  const SessionRestoreRetryScreen({super.key});
+  @override
+  Widget build(BuildContext context) {
+    final session = context.watch<SessionController>();
+    return Scaffold(
+      body: AppPage(
+        children: [
+          const SizedBox(height: 35),
+          const Icon(Icons.cloud_off_outlined, size: 48, color: AppColors.pink),
+          const SizedBox(height: 24),
+          const PageHeading(
+            title: 'Chưa kết nối được tài khoản',
+            subtitle: 'Phiên đăng nhập vẫn được giữ trên thiết bị. Kiểm tra kết nối mạng rồi thử lại.',
+          ),
+          if (session.error != null) Notice(session.error!, isError: true),
+          FilledButton.icon(
+            onPressed: session.busy ? null : session.restore,
+            icon: const Icon(Icons.refresh),
+            label: const Text('Thử kết nối lại'),
+          ),
+          const SizedBox(height: 12),
+          TextButton(
+            onPressed: session.busy ? null : session.logout,
+            child: const Text('Đăng nhập tài khoản khác'),
+          ),
+        ],
       ),
     );
   }

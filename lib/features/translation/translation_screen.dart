@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -13,6 +14,7 @@ import 'speech_engine.dart';
 import 'speech_models.dart';
 import 'translation_service.dart';
 import 'live_camera_screen.dart';
+import 'translation_overlay.dart';
 
 class TranslationScreen extends StatefulWidget {
   const TranslationScreen({
@@ -53,6 +55,9 @@ class TranslationScreenState extends State<TranslationScreen>
   String _source = 'vi', _target = 'en', _mode = 'text', _output = '';
   bool _busy = false, _prepared = false, _listening = false, _closing = false;
   bool _openingCamera = false;
+  ui.Image? _photoImage;
+  OcrTranslation? _photoTranslation;
+  bool _showPhotoText = false;
   int _queuedTranslations = 0;
   String? _error, _activity;
   int _voiceRequest = 0;
@@ -149,7 +154,17 @@ class TranslationScreenState extends State<TranslationScreen>
     unawaited(_service.dispose());
     unawaited(_tts?.stop() ?? Future.value());
     _input.dispose();
+    _clearPhoto();
     super.dispose();
+  }
+
+  void _clearPhoto() {
+    final old = _photoImage;
+    _photoImage = null;
+    _photoTranslation = null;
+    _showPhotoText = false;
+    // RawImage owns a clone in its RenderImage; release this screen's handle now.
+    old?.dispose();
   }
 
   Future<void> _translate() async {
@@ -161,6 +176,7 @@ class TranslationScreenState extends State<TranslationScreen>
       _busy = true;
       _error = null;
       _activity = 'Đang chuẩn bị gói ngôn ngữ và dịch…';
+      _clearPhoto();
     });
     try {
       final value = await _service.translate(
@@ -182,10 +198,12 @@ class TranslationScreenState extends State<TranslationScreen>
   }
 
   Future<void> _photo(ImageSource source) async {
+    ui.Image? decoded;
     try {
       final picture = await ImagePicker().pickImage(
         source: source,
         maxWidth: 2200,
+        maxHeight: 2200,
         imageQuality: 90,
       );
       if (picture == null || !mounted) return;
@@ -193,22 +211,37 @@ class TranslationScreenState extends State<TranslationScreen>
         _busy = true;
         _error = null;
         _activity = 'Đang đọc chữ trong ảnh…';
+        _clearPhoto();
       });
-      final text = await _service.recognizePhoto(
-        picture.path,
+      final codec = await ui.instantiateImageCodec(await picture.readAsBytes());
+      try {
+        decoded = (await codec.getNextFrame()).image;
+      } finally {
+        codec.dispose();
+      }
+      final page = await _service.recognizeBitmap(
+        decoded,
         sourceLanguage: _source,
       );
       if (!mounted) return;
-      _input.text = text;
-      final translated = await _service.translate(
-        text,
+      final translated = await _service.translatePage(
+        page,
         sourceLanguage: _source,
         targetLanguage: _target,
       );
-      if (mounted) setState(() => _output = translated);
+      if (mounted) {
+        setState(() {
+          _input.text = translated.originalText;
+          _output = translated.translatedText;
+          _photoImage = decoded;
+          _photoTranslation = translated;
+          decoded = null;
+        });
+      }
     } catch (e) {
       if (mounted) setState(() => _error = errorMessage(e));
     } finally {
+      decoded?.dispose();
       if (mounted) {
         setState(() {
           _busy = false;
@@ -475,6 +508,7 @@ class TranslationScreenState extends State<TranslationScreen>
                   if (v == _target) _target = _source;
                   _source = v;
                   _output = '';
+                  _clearPhoto();
                 }),
               ),
             ),
@@ -487,6 +521,7 @@ class TranslationScreenState extends State<TranslationScreen>
                       _source = _target;
                       _target = old;
                       _output = '';
+                      _clearPhoto();
                     }),
               icon: const Icon(Icons.swap_horiz),
             ),
@@ -498,6 +533,7 @@ class TranslationScreenState extends State<TranslationScreen>
                   if (v == _source) _source = _target;
                   _target = v;
                   _output = '';
+                  _clearPhoto();
                 }),
               ),
             ),
@@ -536,54 +572,138 @@ class TranslationScreenState extends State<TranslationScreen>
         if (_error != null) Notice(_error!, isError: true),
         if (_activity != null) Notice(_activity!),
         if (_mode == 'text') ...[
-          Surface(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Text('Bản gốc', style: Theme.of(context).textTheme.titleMedium),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _input,
-                  minLines: 4,
-                  maxLines: 9,
-                  maxLength: 10000,
-                  decoration: const InputDecoration(
-                    hintText: 'Nhập nội dung cần dịch',
-                    border: InputBorder.none,
+          if (_photoImage != null && _photoTranslation != null) ...[
+            Surface(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Bản dịch trên ảnh',
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: 'Đóng ảnh',
+                        onPressed: () => setState(_clearPhoto),
+                        icon: const Icon(Icons.close),
+                      ),
+                    ],
                   ),
-                ),
-                const SizedBox(height: 10),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    OutlinedButton.icon(
-                      onPressed: _busy
-                          ? null
-                          : () => _photo(ImageSource.camera),
-                      icon: const Icon(Icons.camera_alt_outlined),
-                      label: const Text('Chụp ảnh'),
+                  const SizedBox(height: 8),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(12),
+                    child: AspectRatio(
+                      key: const ValueKey('photo-translation-preview'),
+                      aspectRatio: _photoImage!.width / _photoImage!.height,
+                      child: ColoredBox(
+                        color: Colors.black87,
+                        child: TranslationOverlayViewport(
+                          imageSize: Size(
+                            _photoImage!.width.toDouble(),
+                            _photoImage!.height.toDouble(),
+                          ),
+                          image: RawImage(image: _photoImage, fit: BoxFit.fill),
+                          regions: _photoTranslation!.regions,
+                          onRegionTap: (region) =>
+                              showOcrRegionDetails(context, region),
+                        ),
+                      ),
                     ),
-                    OutlinedButton.icon(
-                      onPressed: _busy
-                          ? null
-                          : () => _photo(ImageSource.gallery),
-                      icon: const Icon(Icons.photo_outlined),
-                      label: const Text('Chọn ảnh'),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Chạm vùng chữ để xem đầy đủ. Ảnh chỉ được xử lý trên thiết bị.',
+                    style: TextStyle(fontSize: 11, color: AppColors.muted),
+                  ),
+                  const GoogleTranslationAttribution(),
+                  TextButton.icon(
+                    onPressed: () =>
+                        setState(() => _showPhotoText = !_showPhotoText),
+                    icon: Icon(
+                      _showPhotoText ? Icons.expand_less : Icons.edit_outlined,
                     ),
-                  ],
-                ),
-                const SizedBox(height: 18),
-                FilledButton.icon(
-                  onPressed: _busy ? null : _translate,
-                  icon: const Icon(Icons.translate),
-                  label: Text(_busy ? 'Đang xử lý…' : 'Dịch'),
-                ),
-              ],
+                    label: Text(
+                      _showPhotoText
+                          ? 'Ẩn phần chỉnh sửa'
+                          : 'Chỉnh sửa nội dung',
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
+          ],
+          if (_photoImage == null || _showPhotoText)
+            Surface(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(
+                    'Bản gốc',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: _input,
+                    onChanged: (_) {
+                      setState(() {
+                        _clearPhoto();
+                        _output = '';
+                      });
+                    },
+                    minLines: 4,
+                    maxLines: 9,
+                    maxLength: 10000,
+                    decoration: const InputDecoration(
+                      hintText: 'Nhập nội dung cần dịch',
+                      border: InputBorder.none,
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      OutlinedButton.icon(
+                        onPressed: _busy
+                            ? null
+                            : () => _photo(ImageSource.camera),
+                        icon: const Icon(Icons.camera_alt_outlined),
+                        label: const Text('Chụp ảnh'),
+                      ),
+                      OutlinedButton.icon(
+                        onPressed: _busy
+                            ? null
+                            : () => _photo(ImageSource.gallery),
+                        icon: const Icon(Icons.photo_outlined),
+                        label: const Text('Chọn ảnh'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 18),
+                  FilledButton.icon(
+                    onPressed: _busy ? null : _translate,
+                    icon: const Icon(Icons.translate),
+                    label: Text(_busy ? 'Đang xử lý…' : 'Dịch'),
+                  ),
+                ],
+              ),
+            ),
           if (_output.isNotEmpty)
-            _resultCard(_input.text.trim(), _output, _source, _target),
+            if (_photoImage != null)
+              ExpansionTile(
+                title: const Text('Xem nội dung và thao tác'),
+                expansionAnimationStyle: MediaQuery.disableAnimationsOf(context)
+                    ? AnimationStyle.noAnimation
+                    : null,
+                children: [
+                  _resultCard(_input.text.trim(), _output, _source, _target),
+                ],
+              )
+            else
+              _resultCard(_input.text.trim(), _output, _source, _target),
         ] else ...[
           Surface(
             color: AppColors.palePink,

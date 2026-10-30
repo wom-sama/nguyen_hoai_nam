@@ -7,9 +7,14 @@ import 'package:camera_platform_interface/camera_platform_interface.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:nguyen_hoai_nam/features/face/face_capture.dart';
+import 'package:nguyen_hoai_nam/features/face/face_scan.dart';
 
-class _Camera extends CameraPlatform {
+class FaceCameraFixture extends CameraPlatform {
   final errors = StreamController<CameraErrorEvent>.broadcast();
+  final frames = StreamController<CameraImageData>.broadcast(sync: true);
+  final orientations =
+      StreamController<DeviceOrientationChangedEvent>.broadcast(sync: true);
+  bool emitInitial = true;
   final calls = <String>[];
   Completer<void>? gate;
   bool fail = false;
@@ -59,25 +64,45 @@ class _Camera extends CameraPlatform {
   Stream<CameraErrorEvent> onCameraError(int id) => errors.stream;
   @override
   Stream<DeviceOrientationChangedEvent> onDeviceOrientationChanged() =>
-      const Stream.empty();
+      orientations.stream;
   @override
   Stream<CameraImageData> onStreamedFrameAvailable(
     int id, {
     CameraImageStreamOptions? options,
-  }) => Stream.value(
-    CameraImageData(
-      format: const CameraImageFormat(ImageFormatGroup.nv21, raw: 17),
-      planes: [
-        CameraImagePlane(
-          bytes: Uint8List.fromList([16, 235, 16, 235, 128, 128]),
-          bytesPerRow: 2,
-          bytesPerPixel: 1,
-        ),
-      ],
-      height: 2,
-      width: 2,
-    ),
-  );
+  }) => !emitInitial
+      ? frames.stream
+      : Stream.value(
+          CameraImageData(
+            format: const CameraImageFormat(ImageFormatGroup.nv21, raw: 17),
+            planes: [
+              CameraImagePlane(
+                bytes: Uint8List.fromList([16, 235, 16, 235, 128, 128]),
+                bytesPerRow: 2,
+                bytesPerPixel: 1,
+              ),
+            ],
+            height: 2,
+            width: 2,
+          ),
+        );
+
+  Uint8List emitFrame(int luminance) {
+    final bytes = Uint8List(640 * 480 * 3 ~/ 2);
+    bytes.fillRange(0, 640 * 480, luminance);
+    bytes.fillRange(640 * 480, bytes.length, 128);
+    frames.add(
+      CameraImageData(
+        format: const CameraImageFormat(ImageFormatGroup.nv21, raw: 17),
+        planes: [
+          CameraImagePlane(bytes: bytes, bytesPerRow: 640, bytesPerPixel: 1),
+        ],
+        width: 640,
+        height: 480,
+      ),
+    );
+    return bytes;
+  }
+
   @override
   Widget buildPreview(int id) =>
       ColoredBox(key: ValueKey('preview$id'), color: Colors.black);
@@ -87,9 +112,16 @@ class _Camera extends CameraPlatform {
   }
 }
 
+class _NoFaces implements FaceScanner {
+  @override
+  Future<List<FaceScanObservation>> scan(InputImage image) async => [];
+  @override
+  Future<void> close() async {}
+}
+
 Future<void> open(WidgetTester tester) async {
   await tester.pumpWidget(
-    const MaterialApp(home: FaceCaptureScreen(enrolling: true)),
+    MaterialApp(home: FaceCaptureScreen(enrolling: true, scanner: _NoFaces())),
   );
   await tester.pump();
   await tester.pump();
@@ -97,10 +129,10 @@ Future<void> open(WidgetTester tester) async {
 
 void main() {
   late CameraPlatform previous;
-  late _Camera camera;
+  late FaceCameraFixture camera;
   setUp(() {
     previous = CameraPlatform.instance;
-    camera = _Camera();
+    camera = FaceCameraFixture();
     CameraPlatform.instance = camera;
   });
   tearDown(() {

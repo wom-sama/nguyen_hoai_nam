@@ -99,7 +99,11 @@ class NotificationController extends ChangeNotifier {
           if (enabled &&
               _currentScope != null &&
               hint.recipientId == session.user?.id) {
-            _banners.add(hint);
+            if (hint.destination == NotificationDestination.profile) {
+              unawaited(open(hint));
+            } else {
+              _banners.add(hint);
+            }
           }
         }, onError: _streamError),
         gateway.opened.listen(
@@ -108,7 +112,13 @@ class NotificationController extends ChangeNotifier {
         ),
       ]);
       final initial = await gateway.initialMessage();
-      if (initial != null) _remember(initial);
+      if (initial != null) {
+        if (initial.destination == NotificationDestination.profile) {
+          await open(initial);
+        } else {
+          _remember(initial);
+        }
+      }
       _initialized = true;
       await refresh();
     } catch (_) {
@@ -375,6 +385,12 @@ class NotificationController extends ChangeNotifier {
   }
 
   Future<void> open(PushHint hint) async {
+    if (hint.destination == NotificationDestination.profile) {
+      if (_currentScope != null && hint.recipientId == session.user?.id) {
+        await session.syncProfile();
+      }
+      return;
+    }
     _remember(hint);
     await _openPending();
   }
@@ -390,6 +406,7 @@ class NotificationController extends ChangeNotifier {
         NotificationDestination.home => 'shifts',
         NotificationDestination.corrections => 'corrections',
         NotificationDestination.handovers => 'handovers',
+        NotificationDestination.profile => 'me',
       };
       await session.api.get('/$resource');
       if (!_current(generation, scope) ||

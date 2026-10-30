@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
@@ -11,25 +13,86 @@ import '../../ui/ledger.dart';
 import '../reports/monthly_report_screen.dart';
 import '../manage/resources_screen.dart';
 import '../location/location_screen.dart';
+import '../notifications/messaging_gateway.dart';
+import '../notifications/notification_controller.dart';
 
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  const HomeScreen({super.key, this.active = true, this.refreshRevision = 0});
+  final bool active;
+  final int refreshRevision;
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
-  late Future<List<List<Json>>> _future;
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
+  Future<List<List<Json>>> _future = Future.value([[], [], [], []]);
+  Future<void>? _refreshTask;
+  NotificationController? _notifications;
+  StreamSubscription<PushHint>? _notificationSubscription;
+  bool _foreground = true;
   bool _punching = false;
+  bool _refreshDirty = false;
   @override
   void initState() {
     super.initState();
-    _load();
+    WidgetsBinding.instance.addObserver(this);
+    final lifecycle = WidgetsBinding.instance.lifecycleState;
+    _foreground = lifecycle == null || lifecycle == AppLifecycleState.resumed;
+    if (widget.active && _foreground) _load();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final notifications = context.watch<NotificationController?>();
+    if (identical(notifications, _notifications)) return;
+    unawaited(_notificationSubscription?.cancel());
+    _notifications = notifications;
+    _notificationSubscription = notifications?.banners.listen((hint) {
+      if (!mounted ||
+          notifications.enabled != true ||
+          hint.recipientId != context.read<SessionController>().user?.id) {
+        return;
+      }
+      if (hint.destination == NotificationDestination.home ||
+          hint.destination == NotificationDestination.corrections) {
+        unawaited(_refresh());
+      }
+    });
+  }
+
+  @override
+  void didUpdateWidget(HomeScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.active &&
+        (!oldWidget.active ||
+            widget.refreshRevision != oldWidget.refreshRevision)) {
+      unawaited(_refresh());
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final wasForeground = _foreground;
+    _foreground = state == AppLifecycleState.resumed;
+    if (_foreground && !wasForeground) unawaited(_refresh());
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    unawaited(_notificationSubscription?.cancel());
+    super.dispose();
   }
 
   void _load() {
+    if (_refreshTask != null) {
+      _refreshDirty = true;
+      return;
+    }
+    _refreshDirty = false;
     final api = context.read<SessionController>().api;
-    _future = Future.wait(
+    final future = Future.wait(
       ['/shifts', '/attendance', '/branches', '/corrections'].map(
         (path) => api
             .get(path)
@@ -40,11 +103,40 @@ class _HomeScreenState extends State<HomeScreen> {
             ),
       ),
     );
+    _future = future;
+    // AsyncPanel retains this original future, including its error. Event and
+    // refresh callbacks only await completion so failures stay visible there.
+    _refreshTask = future.then<void>(
+      (_) => _loadFinished(future),
+      onError: (Object error, StackTrace stack) => _loadFinished(future),
+    );
   }
 
-  Future<void> _refresh() async {
-    setState(_load);
-    await _future;
+  void _loadFinished(Future<List<List<Json>>> future) {
+    if (!mounted || !identical(future, _future)) return;
+    setState(() => _refreshTask = null);
+    _flushRefresh();
+  }
+
+  void _flushRefresh() {
+    if (mounted &&
+        _refreshDirty &&
+        _refreshTask == null &&
+        widget.active &&
+        _foreground &&
+        !_punching &&
+        ModalRoute.of(context)?.isCurrent != false) {
+      setState(_load);
+    }
+  }
+
+  Future<void> _refresh() {
+    if (!mounted) return Future.value();
+    // A changed snapshot needs one trailing read even if an older GET is still
+    // in flight. Keep only one pending refresh while hidden or punching.
+    _refreshDirty = true;
+    _flushRefresh();
+    return _refreshTask ?? Future.value();
   }
 
   Future<void> _punch(Json shift, bool checkingOut) async {
@@ -134,7 +226,10 @@ class _HomeScreenState extends State<HomeScreen> {
     } catch (e) {
       if (mounted) showFailure(context, e);
     } finally {
-      if (mounted) setState(() => _punching = false);
+      if (mounted) {
+        setState(() => _punching = false);
+        _flushRefresh();
+      }
     }
   }
 
@@ -159,13 +254,20 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ),
             StatusPill(user.role),
+            const SizedBox(width: 8),
+            IconButton(
+              tooltip: 'Làm mới ca làm',
+              visualDensity: VisualDensity.compact,
+              onPressed: _punching || _refreshTask != null ? null : _refresh,
+              icon: const Icon(Icons.refresh, size: 20),
+            ),
           ],
         ),
         const SizedBox(height: 14),
         const LedgerHeading(kicker: 'CHẤM CÔNG / HN', title: 'Ca làm hôm nay'),
         AsyncPanel<List<List<Json>>>(
           future: _future,
-          onRetry: () => setState(_load),
+          onRetry: _refresh,
           builder: (data) {
             final shifts = data[0],
                 attendance = data[1],
