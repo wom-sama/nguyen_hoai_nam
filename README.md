@@ -1,5 +1,7 @@
 # Nguyễn Hoài Nam — App chấm công nhân viên
 
+Release 1.1.0+4: **170/170 Flutter tests**, analyzer sạch; **129/129 backend tests**, **11 kiểm tra PostgreSQL thật**. Android Studio build thành công trong 363,2 giây, chữ ký APK trùng bản đã nộp. Backend b4286b4 đã hoạt động trên API cũ; khuôn mặt QA nhận phiên trực tiếp không OTP. Chưa xác minh cảm biến vân tay thật/trọn luồng camera khuôn mặt dương tính của APK mới.
+
 MSSV **2380601398** · **Nhóm8** · **Sáng thứ 6** · Flutter project **nguyen_hoai_nam** · Android hiển thị **Nguyễn Hoài Nam**.
 
 Frontend cá nhân: **https://github.com/wom-sama/nguyen_hoai_nam**.
@@ -24,7 +26,7 @@ Android applicationId giữ com.example.nguyen_hoai_nam_2380601398 để khớp 
 - Admin/quản lý/nhân viên với trang và quyền server tương ứng; giới hạn chi nhánh.
 - CRUD nhân viên, chi nhánh, ca và đơn điều chỉnh; phân ca linh hoạt/qua đêm, chấm vào/ra theo giờ server và vị trí, chặn trùng, giữ giờ gốc và lịch sử, bảng công tháng chưa tính lương.
 - Dịch camera trực tiếp: đọc ImageStream NV21 trong bộ nhớ, từng khung có giới hạn tần suất; chỉ gửi văn bản khi bấm Lưu. Lịch sử riêng có thể mở lại để sao chép/bàn giao. Mốc kiểm chứng camera có5tests mới,12checks PostgreSQL và10checks API thật đạt. Native release 1.0.2+3 đã đổi cảnh NOTICE có nhãn theo vùng rồi về TV xóa nhãn trong cùng phiên camera; chưa xác minh toàn luồng OCR–Lưu–lịch sử ở native.
-- a: đối chiếu khuôn mặt trên server rồi OTP; b: chia sẻ vị trí có hạn; f: OCR/dịch ảnh và nhận giọng liên tục Việt–Anh–Trung.
+- a: đối chiếu khuôn mặt trên server, cấp phiên không OTP; b: chia sẻ vị trí có hạn; f: OCR/dịch ảnh và nhận giọng liên tục Việt–Anh–Trung. Vân tay thiết bị bổ sung đăng nhập bằng chữ ký nonce.
 - Bàn giao kiểm chứng1–3 dữ kiện trong cả bản gốc/dịch, nhập lại đúng phiên bản, server tạo xác nhận; sửa phiếu hủy xác nhận cũ và giữ audit.
 - FCM phân ca/duyệt đơn/bàn giao và cập nhật hồ sơ của chính tài khoản; kem–hồng, dấuHN, guide lần đầu, watermark chuyển động có dừng theo vòng đời/reduced motion.
 
