@@ -10,6 +10,8 @@ import '../../ui/ledger.dart';
 import '../face/face_capture.dart';
 import '../location/location_screen.dart';
 import '../notifications/notification_controller.dart';
+import '../auth/device_biometrics.dart';
+import '../settings/settings_screen.dart';
 
 class AccountScreen extends StatefulWidget {
   const AccountScreen({super.key});
@@ -78,6 +80,31 @@ class _AccountScreenState extends State<AccountScreen> {
       if (mounted) setState(_load);
     } catch (e) {
       if (mounted) showFailure(context, e);
+    } finally {
+      if (mounted) setState(() => _working = false);
+    }
+  }
+
+  Future<void> _fingerprint({bool remove = false}) async {
+    final session = context.read<SessionController>();
+    setState(() => _working = true);
+    try {
+      final biometrics = DeviceBiometrics();
+      if (remove) {
+        await biometrics.revoke(session.api, session.user!.username);
+      } else {
+        await biometrics.enroll(session.api, session.user!.username);
+      }
+      if (mounted) {
+        showMessage(
+          context,
+          remove
+              ? 'Đã gỡ liên kết vân tay trên thiết bị.'
+              : 'Đã đăng ký vân tay. Lần sau không cần OTP.',
+        );
+      }
+    } catch (error) {
+      if (mounted) showFailure(context, error);
     } finally {
       if (mounted) setState(() => _working = false);
     }
@@ -164,7 +191,7 @@ class _AccountScreenState extends State<AccountScreen> {
                 ),
                 const SizedBox(height: 12),
                 const Text(
-                  'Dùng khuôn mặt đã đăng ký và mã xác nhận gửi qua email để đăng nhập.',
+                  'Dùng khuôn mặt đã đăng ký để đăng nhập trên các thiết bị, không cần OTP.',
                   style: TextStyle(color: AppColors.muted, fontSize: 12),
                 ),
                 const SizedBox(height: 18),
@@ -186,6 +213,27 @@ class _AccountScreenState extends State<AccountScreen> {
                   ),
               ],
             ),
+          ),
+        ),
+        Surface(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'Vân tay thiết bị',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                onPressed: _working ? null : () => _fingerprint(),
+                icon: const Icon(Icons.fingerprint),
+                label: const Text('Đăng ký vân tay'),
+              ),
+              TextButton(
+                onPressed: _working ? null : () => _fingerprint(remove: true),
+                child: const Text('Gỡ liên kết thiết bị'),
+              ),
+            ],
           ),
         ),
         if (notifications != null)
@@ -234,6 +282,16 @@ class _AccountScreenState extends State<AccountScreen> {
           child: Column(
             children: [
               ListTile(
+                leading: const Icon(Icons.settings_outlined),
+                title: const Text('Cài đặt và hồ sơ'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const SettingsHubScreen()),
+                ),
+              ),
+              const Divider(height: 1),
+              ListTile(
                 leading: const Icon(Icons.help_outline),
                 title: const Text('Hướng dẫn sử dụng'),
                 trailing: const Icon(Icons.chevron_right),
@@ -257,7 +315,7 @@ class _AccountScreenState extends State<AccountScreen> {
                 onTap: () => showAboutDialog(
                   context: context,
                   applicationName: 'Nguyễn Hoài Nam',
-                  applicationVersion: '1.0.0',
+                  applicationVersion: '1.1.0',
                   applicationIcon: const HnMark(size: 40),
                   applicationLegalese: 'Nguyễn Hoài Nam · 2380601398 · Nhóm 8',
                   children: const [
@@ -271,7 +329,7 @@ class _AccountScreenState extends State<AccountScreen> {
                     ),
                     SizedBox(height: 12),
                     Text(
-                      'Nhận diện mặt qua ảnh 2D có giới hạn chống giả mạo; ứng dụng kết hợp OTP email.',
+                      'Nhận diện mặt qua ảnh 2D có giới hạn chống giả mạo. Vân tay được xác thực bởi Android, khóa riêng giữ trên thiết bị.',
                     ),
                   ],
                 ),

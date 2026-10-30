@@ -1,5 +1,5 @@
 package com.example.nguyen_hoai_nam_2380601398
 
-import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.android.FlutterFragmentActivity
 
-class MainActivity : FlutterActivity()
+class MainActivity : FlutterFragmentActivity()

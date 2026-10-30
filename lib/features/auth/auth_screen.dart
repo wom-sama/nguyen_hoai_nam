@@ -9,6 +9,7 @@ import '../../ui/components.dart';
 import '../../ui/theme.dart';
 import '../../ui/ledger.dart';
 import '../face/face_capture.dart';
+import 'device_biometrics.dart';
 
 class AuthScreen extends StatefulWidget {
   const AuthScreen({super.key});
@@ -66,6 +67,18 @@ class _AuthScreenState extends State<AuthScreen> {
       ),
     );
     if (image != null && mounted) await session.faceLogin(username, image);
+  }
+
+  Future<void> _fingerprint() async {
+    final username = _username.text.trim();
+    if (!RegExp(r'^[a-zA-Z0-9_.]{3,32}$').hasMatch(username)) {
+      showMessage(context, 'Nhập tên đăng nhập trước khi dùng vân tay.');
+      return;
+    }
+    final session = context.read<SessionController>();
+    await session.biometricLogin(
+      () => DeviceBiometrics().login(session.api, username),
+    );
   }
 
   @override
@@ -218,6 +231,12 @@ class _AuthScreenState extends State<AuthScreen> {
                         onPressed: session.busy ? null : _face,
                         icon: const Icon(Icons.face_retouching_natural),
                         label: const Text('Đăng nhập bằng khuôn mặt'),
+                      ),
+                      const SizedBox(height: 8),
+                      OutlinedButton.icon(
+                        onPressed: session.busy ? null : _fingerprint,
+                        icon: const Icon(Icons.fingerprint),
+                        label: const Text('Đăng nhập bằng vân tay'),
                       ),
                     ],
                   ],

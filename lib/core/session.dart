@@ -198,10 +198,20 @@ class SessionController extends ChangeNotifier {
     {'username': username.trim(), 'password': password},
   );
   Future<bool> register(Json values) => _begin('/auth/register', values);
-  Future<bool> faceLogin(String username, String imageBase64) => _begin(
-    '/auth/face-login',
-    {'username': username.trim(), 'imageBase64': imageBase64},
+  Future<bool> faceLogin(String username, String imageBase64) => biometricLogin(
+    () async => await api.post('/auth/face-login', {
+      'username': username.trim(),
+      'imageBase64': imageBase64,
+    }, authenticated: false) as Json,
   );
+
+  Future<bool> biometricLogin(Future<Json> Function() authenticate) {
+    if (busy || _disposed) return Future.value(false);
+    _advanceEpoch();
+    challenge = null;
+    challengeUsername = null;
+    return _run((epoch) async => _accept(await authenticate(), epoch));
+  }
 
   Future<void> _accept(Json value, int epoch) async {
     if (!_current(epoch)) return;

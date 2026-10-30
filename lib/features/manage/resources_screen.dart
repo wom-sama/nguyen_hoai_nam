@@ -746,17 +746,21 @@ class ResourceEditor extends StatefulWidget {
   State<ResourceEditor> createState() => _ResourceEditorState();
 }
 
-class _ResourceEditorState extends State<ResourceEditor> {
+class _ResourceEditorState extends State<ResourceEditor>
+    with WidgetsBindingObserver {
   final _form = GlobalKey<FormState>();
   final Map<String, TextEditingController> _controllers = {};
   final Map<String, dynamic> _values = {};
   List<Json> _branches = [], _employees = [], _shifts = [];
   bool _loading = true, _saving = false, _loadFailed = false;
+  Future<void>? _referenceTask;
+  bool _refreshRequested = false, _foreground = true;
   String? _error;
   bool get _editing => widget.initial != null;
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _values.addAll(widget.initial ?? {});
     if (widget.resource == 'branches') {
       final policy =
@@ -770,13 +774,38 @@ class _ResourceEditorState extends State<ResourceEditor> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     for (final c in _controllers.values) {
       c.dispose();
     }
     super.dispose();
   }
 
-  Future<void> _prepare() async {
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _foreground = state == AppLifecycleState.resumed;
+    if (state == AppLifecycleState.resumed &&
+        mounted &&
+        widget.resource != 'branches') {
+      unawaited(_prepare());
+    }
+  }
+
+  Future<void> _prepare() {
+    if (_saving || _referenceTask != null) {
+      _refreshRequested = true;
+      return _referenceTask ?? Future.value();
+    }
+    _refreshRequested = false;
+    return _referenceTask = _readReferences().whenComplete(() {
+      _referenceTask = null;
+      if (mounted && _refreshRequested && _foreground && !_saving) {
+        unawaited(_prepare());
+      }
+    });
+  }
+
+  Future<void> _readReferences() async {
     if (mounted) {
       setState(() {
         _loading = true;
@@ -786,6 +815,8 @@ class _ResourceEditorState extends State<ResourceEditor> {
     }
     try {
       final session = context.read<SessionController>();
+      final user = session.user;
+      final scope = (user?.id, user?.role, user?.branchId, user?.status);
       final paths = switch (widget.resource) {
         'employees' => ['/branches'],
         'shifts' => ['/branches', '/employees'],
@@ -794,6 +825,12 @@ class _ResourceEditorState extends State<ResourceEditor> {
       };
       final result = await Future.wait(paths.map(session.api.get));
       if (!mounted) return;
+      final current = session.user;
+      if (scope !=
+          (current?.id, current?.role, current?.branchId, current?.status)) {
+        _refreshRequested = current != null;
+        return;
+      }
       List<Json> rows(String path) => paths.contains(path)
           ? (result[paths.indexOf(path)] as List)
                 .map((row) => Map<String, dynamic>.from(row as Map))
@@ -1079,7 +1116,14 @@ class _ResourceEditorState extends State<ResourceEditor> {
         showFailure(context, e);
       }
     } finally {
-      if (mounted) setState(() => _saving = false);
+      if (mounted) {
+        setState(() => _saving = false);
+        if (_refreshRequested &&
+            _foreground &&
+            ModalRoute.of(context)?.isCurrent == true) {
+          unawaited(_prepare());
+        }
+      }
     }
   }
 
@@ -1090,6 +1134,14 @@ class _ResourceEditorState extends State<ResourceEditor> {
         (_editing ? 'Chỉnh sửa ' : 'Thêm ') +
             resourceLabel(widget.resource).toLowerCase(),
       ),
+      actions: [
+        if (widget.resource != 'branches')
+          IconButton(
+            tooltip: 'Cập nhật danh sách',
+            onPressed: _loading || _saving ? null : _prepare,
+            icon: const Icon(Icons.refresh),
+          ),
+      ],
     ),
     body: _loading
         ? const Center(child: CircularProgressIndicator())
@@ -1212,6 +1264,18 @@ class _ResourceEditorState extends State<ResourceEditor> {
           ),
   );
   Widget _fieldWidget(_Field f) {
+    if (_editing && widget.resource == 'employees' && f.key == 'email') {
+      return TextFormField(
+        controller: _controller(f),
+        readOnly: true,
+        decoration: InputDecoration(
+          labelText: f.label,
+          suffixIcon: const Icon(Icons.lock_outline),
+          helperText:
+              'Đổi email trong cài đặt tài khoản, có xác nhận và duyệt.',
+        ),
+      );
+    }
     final locked =
         widget.resource == 'shifts' &&
         widget.initial?['planLocked'] == true &&

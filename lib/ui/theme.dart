@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 
 abstract final class AppColors {
@@ -11,25 +13,53 @@ abstract final class AppColors {
       lightGreen = Color(0xFFE8F2E9);
 }
 
-ThemeData appTheme() {
+class AppAppearance extends ThemeExtension<AppAppearance> {
+  const AppAppearance({this.backgroundImage});
+  final Uint8List? backgroundImage;
+  @override
+  AppAppearance copyWith({Uint8List? backgroundImage}) =>
+      AppAppearance(backgroundImage: backgroundImage ?? this.backgroundImage);
+  @override
+  AppAppearance lerp(covariant AppAppearance? other, double t) =>
+      t < .5 ? this : other ?? this;
+}
+
+ThemeData appTheme({
+  Color? textColor,
+  Color? primaryColor,
+  Uint8List? backgroundImage,
+}) {
+  final text = textColor ?? AppColors.ink;
+  final primary = primaryColor ?? AppColors.pink;
+  final muted = text == AppColors.ink
+      ? AppColors.muted
+      : Color.lerp(text, Colors.white, .35)!;
+  final container = primary == AppColors.pink
+      ? AppColors.palePink
+      : Color.lerp(primary, Colors.white, .86)!;
   final scheme =
       ColorScheme.fromSeed(
-        seedColor: AppColors.pink,
+        seedColor: primary,
         brightness: Brightness.light,
       ).copyWith(
-        primary: AppColors.pink,
-        onPrimary: Colors.white,
-        primaryContainer: AppColors.palePink,
-        onPrimaryContainer: AppColors.ink,
+        primary: primary,
+        onPrimary: primary.computeLuminance() > .179
+            ? Colors.black
+            : Colors.white,
+        primaryContainer: container,
+        onPrimaryContainer: text,
         surface: AppColors.cream,
-        onSurface: AppColors.ink,
+        onSurface: text,
+        onSurfaceVariant: muted,
         outline: AppColors.line,
         secondary: AppColors.green,
       );
   return ThemeData(
     useMaterial3: true,
     fontFamily: 'BeVietnamPro',
+    extensions: [AppAppearance(backgroundImage: backgroundImage)],
     colorScheme: scheme,
+    iconTheme: IconThemeData(color: primary),
     scaffoldBackgroundColor: AppColors.cream,
     textTheme: const TextTheme(
       headlineLarge: TextStyle(
@@ -59,10 +89,10 @@ ThemeData appTheme() {
       bodyLarge: TextStyle(fontSize: 15, height: 1.6),
       bodyMedium: TextStyle(fontSize: 13, height: 1.55),
       labelLarge: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
-    ),
-    appBarTheme: const AppBarTheme(
+    ).apply(bodyColor: text, displayColor: text),
+    appBarTheme: AppBarTheme(
       backgroundColor: AppColors.cream,
-      foregroundColor: AppColors.ink,
+      foregroundColor: text,
       elevation: 0,
       scrolledUnderElevation: 0,
       centerTitle: false,
@@ -81,9 +111,9 @@ ThemeData appTheme() {
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(12),
-        borderSide: const BorderSide(color: AppColors.pink, width: 1.5),
+        borderSide: BorderSide(color: primary, width: 1.5),
       ),
-      labelStyle: const TextStyle(color: AppColors.muted, fontSize: 14),
+      labelStyle: TextStyle(color: muted, fontSize: 14),
     ),
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
@@ -101,9 +131,9 @@ ThemeData appTheme() {
     textButtonTheme: TextButtonThemeData(
       style: TextButton.styleFrom(minimumSize: const Size(48, 48)),
     ),
-    navigationBarTheme: const NavigationBarThemeData(
+    navigationBarTheme: NavigationBarThemeData(
       backgroundColor: AppColors.cream,
-      indicatorColor: AppColors.palePink,
+      indicatorColor: container,
       height: 78,
       labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
     ),

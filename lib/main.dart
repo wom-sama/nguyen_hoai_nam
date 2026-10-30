@@ -13,6 +13,8 @@ import 'ui/theme.dart';
 import 'ui/ledger.dart';
 import 'ui/first_run_guide.dart';
 import 'features/auth/auth_screen.dart';
+import 'features/auth/biometric_setup.dart';
+import 'features/settings/appearance_controller.dart';
 import 'features/home/home_screen.dart';
 import 'features/handovers/handovers_screen.dart';
 import 'features/translation/translation_screen.dart';
@@ -53,52 +55,105 @@ Future<void> main() async {
       session: session,
       notifications: notifications,
       firstRun: firstRun,
+      enableAccountSettings: true,
     ),
   );
   unawaited(session.restore());
   unawaited(notifications.initialize());
 }
 
-class AttendanceApp extends StatelessWidget {
+class AttendanceApp extends StatefulWidget {
   const AttendanceApp({
     super.key,
     required this.session,
     this.notifications,
     this.firstRun,
+    this.enableAccountSettings = false,
   });
   final SessionController session;
   final NotificationController? notifications;
   final FirstRunController? firstRun;
+  final bool enableAccountSettings;
+  @override
+  State<AttendanceApp> createState() => _AttendanceAppState();
+}
+
+class _AttendanceAppState extends State<AttendanceApp> {
+  final appearance = AppearanceController();
+  String? _appearanceScope;
+  @override
+  void dispose() {
+    appearance.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) => MultiProvider(
     providers: [
-      ChangeNotifierProvider.value(value: session),
-      ListenableProvider<NotificationController?>.value(value: notifications),
-    ],
-    child: Consumer<SessionController>(
-      builder: (context, current, child) => MaterialApp(
-        key: ValueKey(
-          '${current.user?.id}|${current.user?.role}|${current.user?.branchId}|${current.user?.status}',
-        ),
-        title: 'Nguyễn Hoài Nam',
-        debugShowCheckedModeBanner: false,
-        theme: appTheme(),
-        locale: const Locale('vi'),
-        supportedLocales: const [Locale('vi'), Locale('en'), Locale('zh')],
-        localizationsDelegates: GlobalMaterialLocalizations.delegates,
-        home: NotificationHost(
-          controller: notifications,
-          child: firstRun == null
-              ? const _AuthGate()
-              : FirstRunGate(controller: firstRun!, child: const _AuthGate()),
-        ),
+      ChangeNotifierProvider.value(value: widget.session),
+      ChangeNotifierProvider.value(value: appearance),
+      ListenableProvider<NotificationController?>.value(
+        value: widget.notifications,
       ),
+    ],
+    child: Consumer2<SessionController, AppearanceController>(
+      builder: (context, current, settings, child) {
+        final account = current.user;
+        final scope = account == null || !account.isActive
+            ? null
+            : '${account.id}:${account.profileVersion}';
+        if (widget.enableAccountSettings && scope != _appearanceScope) {
+          _appearanceScope = scope;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted || _appearanceScope != scope) return;
+            if (scope == null) {
+              appearance.reset();
+            } else {
+              unawaited(
+                appearance.load(
+                  api: current.api,
+                  userId: account!.id,
+                  force: true,
+                ),
+              );
+            }
+          });
+        }
+        return MaterialApp(
+          key: ValueKey(
+            '${current.user?.id}|${current.user?.role}|${current.user?.branchId}|${current.user?.status}',
+          ),
+          title: 'Nguyễn Hoài Nam',
+          debugShowCheckedModeBanner: false,
+          theme: settings.themeData,
+          builder: (context, child) => MediaQuery(
+            data: MediaQuery.of(context)
+                .copyWith(textScaler: settings.textScaler),
+            child: child!,
+          ),
+          locale: const Locale('vi'),
+          supportedLocales: const [Locale('vi'), Locale('en'), Locale('zh')],
+          localizationsDelegates: GlobalMaterialLocalizations.delegates,
+          home: NotificationHost(
+            controller: widget.notifications,
+            child: widget.firstRun == null
+                ? _AuthGate(enforceBiometrics: widget.enableAccountSettings)
+                : FirstRunGate(
+                    controller: widget.firstRun!,
+                    child: _AuthGate(
+                      enforceBiometrics: widget.enableAccountSettings,
+                    ),
+                  ),
+          ),
+        );
+      },
     ),
   );
 }
 
 class _AuthGate extends StatefulWidget {
-  const _AuthGate();
+  const _AuthGate({this.enforceBiometrics = false});
+  final bool enforceBiometrics;
   @override
   State<_AuthGate> createState() => _AuthGateState();
 }
@@ -154,9 +209,12 @@ class _AuthGateState extends State<_AuthGate> with WidgetsBindingObserver {
     if (session.user != null) {
       if (!session.user!.isActive) return const PendingAccountScreen();
       final user = session.user!;
-      return _AppShell(
+      final shell = _AppShell(
         key: ValueKey('${user.id}|${user.role}|${user.branchId}'),
       );
+      return widget.enforceBiometrics
+          ? BiometricSetupGate(key: ValueKey(user.id), child: shell)
+          : shell;
     }
     if (session.restoreRetryable) return const SessionRestoreRetryScreen();
     if (session.challenge != null) return const OtpScreen();

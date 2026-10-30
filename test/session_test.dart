@@ -33,6 +33,32 @@ http.Response reply(dynamic data) => http.Response(
   headers: {'content-type': 'application/json'},
 );
 void main() {
+  test(
+    'Face match accepts a session directly without an OTP challenge',
+    () async {
+      final store = MemoryStore();
+      final paths = <String>[];
+      final api = ApiClient(
+        baseUrl: 'https://attendance.example.com',
+        transport: MockClient((req) async {
+          paths.add(req.url.path);
+          return reply({
+            'accessToken': 'face-access',
+            'refreshToken': 'face-refresh',
+            'user': userJson,
+          });
+        }),
+      );
+      final session = SessionController(api: api, store: store);
+      expect(await session.faceLogin('nhanvien', 'test-face-image'), isTrue);
+      expect(session.user?.id, 'employee-1');
+      expect(session.challenge, isNull);
+      expect(store.value?.refreshToken, 'face-refresh');
+      expect(paths, ['/v1/auth/face-login']);
+      session.dispose();
+      api.close();
+    },
+  );
   test('Password alone never authenticates; OTP failure keeps credentials out of storage', () async {
     final store = MemoryStore();
     final api = ApiClient(

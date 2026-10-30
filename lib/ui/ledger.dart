@@ -90,11 +90,11 @@ class LedgerHeading extends StatelessWidget {
                 children: [
                   Text(
                     kicker,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 10,
                       letterSpacing: 1.3,
                       fontWeight: FontWeight.w600,
-                      color: AppColors.pink,
+                      color: Theme.of(context).colorScheme.primary,
                     ),
                   ),
                   const SizedBox(height: 7),
@@ -135,9 +135,9 @@ class LedgerSection extends StatelessWidget {
       children: [
         Text(
           number,
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 11,
-            color: AppColors.pink,
+            color: Theme.of(context).colorScheme.primary,
             fontWeight: FontWeight.w600,
           ),
         ),
@@ -179,20 +179,20 @@ class LedgerSheet extends StatelessWidget {
         children: [
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-            decoration: const BoxDecoration(
-              color: AppColors.palePink,
-              border: Border(bottom: BorderSide(color: AppColors.line)),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.primaryContainer,
+              border: const Border(bottom: BorderSide(color: AppColors.line)),
             ),
             child: Row(
               children: [
                 Expanded(
                   child: Text(
                     label,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 10,
                       fontWeight: FontWeight.w700,
                       letterSpacing: 1.3,
-                      color: AppColors.pink,
+                      color: Theme.of(context).colorScheme.primary,
                     ),
                   ),
                 ),

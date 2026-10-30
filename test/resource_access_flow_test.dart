@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -65,6 +66,7 @@ class _Fixture {
     },
   ];
   final requests = <http.Request>[];
+  final employeeReplies = <Future<http.Response>>[];
   bool failBranches = false, stalePatch = false;
   late final api = ApiClient(
     baseUrl: 'https://attendance.example.test',
@@ -87,6 +89,9 @@ class _Fixture {
         data = branches;
       } else if (request.method == 'GET' &&
           request.url.path == '/v1/employees') {
+        if (employeeReplies.isNotEmpty) {
+          return await employeeReplies.removeAt(0);
+        }
         data = employees;
       } else if (request.method == 'PATCH' &&
           request.url.path.startsWith('/v1/employees/')) {
@@ -158,7 +163,95 @@ Future<void> _save(WidgetTester tester) async {
   await tester.pumpAndSettle();
 }
 
+Future<void> _resumeFromBackground(WidgetTester tester) async {
+  for (final state in const [
+    AppLifecycleState.inactive,
+    AppLifecycleState.hidden,
+    AppLifecycleState.paused,
+    AppLifecycleState.hidden,
+    AppLifecycleState.inactive,
+    AppLifecycleState.resumed,
+  ]) {
+    tester.binding.handleAppLifecycleStateChanged(state);
+    await tester.pump();
+  }
+}
+
 void main() {
+  testWidgets(
+    'slow pre-resume members cannot overwrite a newer assignment list',
+    (tester) async {
+      final f = _Fixture();
+      addTearDown(f.close);
+      await _open(tester, f, const ResourceEditor(resource: 'shifts'));
+      await tester.enterText(
+        find.byType(TextFormField).first,
+        'Ca giữ bản nháp',
+      );
+      await _select(tester, 0, 'Chi nhánh B');
+      final oldBody = jsonEncode({'data': f.employees});
+      final oldReply = Completer<http.Response>();
+      f.employeeReplies.add(oldReply.future);
+      await _resumeFromBackground(tester);
+      expect(f.requests.where((r) => r.url.path == '/v1/employees').length, 2);
+      f.employees[2].addAll({'status': 'active', 'branchId': 'branch-b'});
+      await _resumeFromBackground(tester);
+      await _resumeFromBackground(tester);
+      oldReply.complete(
+        http.Response(
+          oldBody,
+          200,
+          headers: {'content-type': 'application/json; charset=utf-8'},
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.text('Có 2 nhân viên sẵn sàng tại chi nhánh đã chọn.'),
+        findsOneWidget,
+      );
+      expect(find.text('Ca giữ bản nháp'), findsOneWidget);
+      expect(f.requests.where((r) => r.url.path == '/v1/employees').length, 3);
+      await _select(tester, 1, 'Nhân viên mới · @new_staff');
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
+  testWidgets(
+    'manager resumes an open shift draft with newly eligible members',
+    (tester) async {
+      final f = _Fixture();
+      addTearDown(f.close);
+      f.branches.removeWhere((branch) => branch['id'] != 'branch-b');
+      f.session.user = const AppUser(
+        id: 'manager',
+        fullName: 'Quản lý B',
+        username: 'manager_b',
+        email: 'manager@example.test',
+        role: 'manager',
+        status: 'active',
+        branchId: 'branch-b',
+      );
+      await _open(tester, f, const ResourceEditor(resource: 'shifts'));
+      await tester.enterText(
+        find.byType(TextFormField).first,
+        'Ca tối đã soạn',
+      );
+      await _select(tester, 0, 'Chi nhánh B');
+      expect(find.text('Gán nhân viên vào chi nhánh'), findsNothing);
+      f.employees[2].addAll({'status': 'active', 'branchId': 'branch-b'});
+      await _resumeFromBackground(tester);
+      await tester.pumpAndSettle();
+      expect(
+        find.text('Có 2 nhân viên sẵn sàng tại chi nhánh đã chọn.'),
+        findsOneWidget,
+      );
+      expect(find.text('Ca tối đã soạn'), findsOneWidget);
+      await _select(tester, 1, 'Nhân viên mới · @new_staff');
+      expect(f.requests.where((r) => r.url.path == '/v1/employees').length, 2);
+      await tester.pumpWidget(const SizedBox());
+    },
+  );
+
   testWidgets(
     'approval requires a branch for staff, sends all grants, and confirms the saved values',
     (tester) async {

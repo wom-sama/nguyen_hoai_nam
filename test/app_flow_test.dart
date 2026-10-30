@@ -202,6 +202,12 @@ void main() {
       await capture(tester, boundary, 'employee_home');
       await tester.tap(find.text('Tài khoản'));
       await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.text('Hướng dẫn sử dụng'),
+        300,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.pumpAndSettle();
       expect(find.text('Hướng dẫn sử dụng'), findsOneWidget);
       expect(find.text('Kết nối máy chủ'), findsNothing);
       expect(find.textContaining('onrender.com'), findsNothing);

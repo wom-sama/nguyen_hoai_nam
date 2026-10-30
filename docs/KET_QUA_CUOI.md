@@ -1,5 +1,11 @@
 # Bản bàn giao Nguyễn Hoài Nam
 
+## Cập nhật 1.1.0+4 — 30/10/2026
+
+Flutter **170/170 tests**, analyzer sạch (4,7 giây); backend **129/129 tests** và **11 kiểm tra PostgreSQL thật** cho hồ sơ, migrations008/009, chữ ký sinh trắc, xác minh hai email, admin khác duyệt và thu hồi liên kết xác thực. PostgreSQL kiểm trong schema riêng đã xóa, dùng mailbox giả, không gửi email cho người thật. Luồng khuôn mặt được kiểm bằng mô hình SFace thật và cấp phiên không OTP. Hợp đồng hiện tại: [CAP_NHAT_1.1.0.md](CAP_NHAT_1.1.0.md).
+
+Trạng thái APK, commit và API production ghi trong báo cáo bàn giao 1.1.0. Chưa kiểm cảm biến vân tay thật hoặc trọn luồng camera khuôn mặt dương tính trên APK mới. Các số liệu native và mốc 1.0.x bên dưới là lịch sử, không thay cho kiểm phần cứng bản mới.
+
 MSSV2380601398 · Nhóm8 · Sáng thứ6 · Project Flutter **nguyen_hoai_nam**, Android hiển thị **Nguyễn Hoài Nam**. Backend Node/PostgreSQL.
 
 Frontend: https://github.com/wom-sama/nguyen_hoai_nam . Backend: https://github.com/wom-sama/nguyen-hoai-nam-2380601398-api . API production: https://nguyen-hoai-nam-2380601398-api.onrender.com/v1 . Backend sửa sau nộp 8ecdbbc đã Live trên chính URL này. Không đổi khóa, Firebase, applicationId hoặc chứng chỉ ký đã nộp.

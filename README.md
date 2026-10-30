@@ -4,6 +4,8 @@ MSSV **2380601398** · **Nhóm8** · **Sáng thứ 6** · Flutter project **nguy
 
 Frontend cá nhân: **https://github.com/wom-sama/nguyen_hoai_nam**.
 
+Bản cập nhật **1.1.0+4** đổi khuôn mặt/vân tay sang đăng nhập không OTP, thêm đăng ký sinh trắc lần đầu, hồ sơ và giao diện đồng bộ, đổi email hai OTP + admin khác duyệt. Đọc [hướng dẫn và hợp đồng API hiện tại](docs/CAP_NHAT_1.1.0.md); các số liệu 1.0.x bên dưới là bằng chứng của các mốc trước, không thay cho kiểm thử 1.1.0.
+
 API HTTPS: **https://nguyen-hoai-nam-2380601398-api.onrender.com/v1**. Backend công khai: https://github.com/wom-sama/nguyen-hoai-nam-2380601398-api . Không dùng localhost trong bản nộp.
 
 ## Chạy bằng Android Studio

@@ -9,9 +9,11 @@ class AppUser {
     required this.role,
     required this.status,
     this.branchId,
+    this.profileVersion = 1,
   });
   final String id, fullName, username, email, role, status;
   final String? branchId;
+  final int profileVersion;
   bool get isActive => status == 'active';
   bool get isAdmin => role == 'admin' && isActive;
   bool get canManage => isActive && (role == 'admin' || role == 'manager');
@@ -28,6 +30,7 @@ class AppUser {
     role: j['role'] as String,
     status: j['status'] as String,
     branchId: j['branchId'] as String?,
+    profileVersion: (j['profileVersion'] as num?)?.toInt() ?? 1,
   );
 }
 

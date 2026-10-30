@@ -29,6 +29,21 @@ class AppPage extends StatelessWidget {
   Widget build(BuildContext context) => Stack(
     fit: StackFit.expand,
     children: [
+      if (Theme.of(context).extension<AppAppearance>()?.backgroundImage
+          case final bytes?)
+        Positioned.fill(
+          child: IgnorePointer(
+            child: ExcludeSemantics(
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  Image.memory(bytes, fit: BoxFit.cover, gaplessPlayback: true),
+                  ColoredBox(color: Colors.white.withValues(alpha: .65)),
+                ],
+              ),
+            ),
+          ),
+        ),
       const Positioned.fill(child: PaperBackdrop()),
       SafeArea(
         bottom: false,
@@ -76,8 +91,8 @@ class PageHeading extends StatelessWidget {
             padding: const EdgeInsets.only(bottom: 10),
             child: Text(
               eyebrow!,
-              style: const TextStyle(
-                color: AppColors.pink,
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.primary,
                 fontSize: 11,
                 fontWeight: FontWeight.w700,
                 letterSpacing: 1.4,
@@ -127,7 +142,9 @@ class Surface extends StatelessWidget {
   Widget build(BuildContext context) => Padding(
     padding: const EdgeInsets.only(bottom: 16),
     child: Material(
-      color: color,
+      color: color == AppColors.palePink
+          ? Theme.of(context).colorScheme.primaryContainer
+          : color,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(18),
         side: const BorderSide(color: AppColors.line),
@@ -147,7 +164,9 @@ class Notice extends StatelessWidget {
     margin: const EdgeInsets.only(bottom: 16),
     padding: const EdgeInsets.all(14),
     decoration: BoxDecoration(
-      color: isError ? const Color(0xFFFBE9E7) : AppColors.palePink,
+      color: isError
+          ? const Color(0xFFFBE9E7)
+          : Theme.of(context).colorScheme.primaryContainer,
       borderRadius: BorderRadius.circular(12),
     ),
     child: Row(
@@ -156,7 +175,9 @@ class Notice extends StatelessWidget {
         Icon(
           isError ? Icons.error_outline : Icons.info_outline,
           size: 20,
-          color: isError ? const Color(0xFF9A3427) : AppColors.pink,
+          color: isError
+              ? const Color(0xFF9A3427)
+              : Theme.of(context).colorScheme.primary,
         ),
         const SizedBox(width: 10),
         Expanded(
@@ -164,7 +185,9 @@ class Notice extends StatelessWidget {
             message,
             style: TextStyle(
               fontSize: 13,
-              color: isError ? const Color(0xFF7C2C24) : AppColors.ink,
+              color: isError
+                  ? const Color(0xFF7C2C24)
+                  : Theme.of(context).colorScheme.onSurface,
             ),
           ),
         ),
@@ -188,7 +211,7 @@ class EmptyState extends StatelessWidget {
   Widget build(BuildContext context) => Surface(
     child: Column(
       children: [
-        Icon(icon, size: 34, color: AppColors.pink),
+        Icon(icon, size: 34, color: Theme.of(context).colorScheme.primary),
         const SizedBox(height: 14),
         Text(
           title,
@@ -244,13 +267,15 @@ class StatusPill extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
-        color: good ? AppColors.lightGreen : AppColors.palePink,
+        color: good
+            ? AppColors.lightGreen
+            : Theme.of(context).colorScheme.primaryContainer,
         borderRadius: BorderRadius.circular(7),
       ),
       child: Text(
         label(value),
         style: TextStyle(
-          color: good ? AppColors.green : AppColors.pink,
+          color: good ? AppColors.green : Theme.of(context).colorScheme.primary,
           fontSize: 11,
           fontWeight: FontWeight.w600,
         ),
